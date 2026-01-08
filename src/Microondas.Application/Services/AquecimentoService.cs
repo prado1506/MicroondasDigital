@@ -12,7 +12,7 @@ public class AquecimentoService
         try
         {
             var potencia = new Potencia(dto.Potencia);
-            var tempo = TimeSpan.FromSeconds(dto.TempoSegundos);
+            var tempo = new Tempo(TimeSpan.FromSeconds(dto.TempoSegundos));
             var aquecimento = new Aquecimento(tempo, potencia);
 
             _aquecimentos.Add(aquecimento);
