@@ -28,8 +28,21 @@ public class Aquecimento
         TempoRestante = tempo;
         Potencia = potencia ?? throw new ArgumentNullException(nameof(potencia));
         Estado = EstadoAquecimento.Parado;
-        StringInformativa = Gerar StringInformativa();
+        StringInformativa = GerarStringInformativa()!;
     }
+
+    private string? GerarStringInformativa()
+    {
+        return Estado switch
+        {
+            EstadoAquecimento.Parado => $"Microondas parado. Tempo: {FormatarTempo(TempoTotal)} | Potência: {Potencia}",
+            EstadoAquecimento.Aquecendo => $"Aquecendo... Tempo restante: {FormatarTempo(TempoRestante)} | Potência: {Potencia}",
+            EstadoAquecimento.Pausado => $"Aquecimento pausado. Tempo restante: {FormatarTempo(TempoRestante)} | Potência: {Potencia}",
+            EstadoAquecimento.Concluido => $"Aquecimento concluído! Tempo total: {FormatarTempo(TempoTotal)}",
+            _ => "Estado desconhecido"
+        };
+    }
+
 
     public void Iniciar()
     {
