@@ -1,10 +1,11 @@
 # Script de setup do projeto Micro-ondas Digital
 # Este script cria a estrutura completa do projeto .NET
+# Corrigido para .NET 8.0 (versão detectada)
 
 Write-Host "=== Criando estrutura do projeto Micro-ondas Digital ===" -ForegroundColor Cyan
 
 # Criar diretórios
-Write-Host "Criando diretórios..." -ForegroundColor Green
+Write-Host "\nCriando diretórios..." -ForegroundColor Green
 $directories = @(
     'src/Microondas.Domain',
     'src/Microondas.Application',
@@ -38,7 +39,7 @@ if (-not (Test-Path 'MicroondasDigital.sln')) {
     Write-Host "Solução criada: MicroondasDigital.sln" -ForegroundColor Yellow
 }
 
-# Criar projetos
+# Criar projetos (sem -f, .NET 8.0 é o padrão agora)
 Write-Host "\nCriando projetos .NET..." -ForegroundColor Green
 $projects = @(
     @{ Name = 'Microondas.Domain'; Path = 'src/Microondas.Domain'; Template = 'classlib' },
@@ -53,13 +54,20 @@ foreach ($project in $projects) {
     $csproj = Join-Path $project.Path "$($project.Name).csproj"
     if (-not (Test-Path $csproj)) {
         Write-Host "Criando projeto: $($project.Name)" -ForegroundColor Yellow
-        & dotnet new $project.Template -n $project.Name -o $project.Path -f net6.0
-        & dotnet sln add $csproj
+        & dotnet new $project.Template -n $project.Name -o $project.Path
+        $result = $LASTEXITCODE
+        if ($result -eq 0) {
+            & dotnet sln add $csproj
+        } else {
+            Write-Host "Erro ao criar $($project.Name)" -ForegroundColor Red
+        }
     }
 }
 
-Write-Host "\n=== Setup concluído com sucesso! ===" -ForegroundColor Green
+Write-Host "\n=== Setup concluído! ===" -ForegroundColor Green
 Write-Host "\nPróximos passos:" -ForegroundColor Cyan
 Write-Host "1. Execute: dotnet restore" -ForegroundColor White
 Write-Host "2. Execute: dotnet build" -ForegroundColor White
 Write-Host "3. Comece a implementar as camadas" -ForegroundColor White
+Write-Host "\nPara adicionar referências entre projetos, use:" -ForegroundColor Cyan
+Write-Host "dotnet add src/Microondas.Application/Microondas.Application.csproj reference src/Microondas.Domain/Microondas.Domain.csproj" -ForegroundColor Gray
