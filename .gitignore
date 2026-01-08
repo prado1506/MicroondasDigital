@@ -1,0 +1,53 @@
+# Visual Studio
+.vs/
+bin/
+obj/
+*.sln.docstates
+
+# User-specific files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Rider
+.idea/
+*.sln.iml
+riderModule.iml
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# NuGet
+*.nupkg
+*.snupkg
+
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+
+# Diagnostic files
+diagnostics.log
+
+# Local environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test results
+TestResults/
+*.coverage
+
+# Application database
+app.db
+app.db-shm
+app.db-wal
