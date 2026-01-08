@@ -1,3 +1,5 @@
+using Microondas.Domain;
+
 namespace Microondas.Tests;
 
 public class AquecimentoTests

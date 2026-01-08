@@ -309,4 +309,112 @@ public class MicroondasUI
             return true;
         }
     }
+    private void PararSimulacao()
+    {
+        try
+        {
+            _cts?.Cancel();
+
+            if (_threadSimulacao != null && _threadSimulacao.IsAlive)
+            {
+                // Aguarda a thread encerrar de forma graciosa
+                _threadSimulacao.Join(500);
+            }
+        }
+        catch
+        {
+            // Ignora exceções de cancelamento/Join aqui
+        }
+        finally
+        {
+            _cts = null;
+            _threadSimulacao = null;
+        }
+    }
+    private bool CancelarAquecimento()
+    {
+        if (_aquecimentoAtual == null)
+        {
+            Console.WriteLine("\n❌ Nenhum aquecimento em andamento!");
+            PauseComEspera();
+            return true;
+        }
+
+        try
+        {
+            _aquecimentoAtual.Cancelar();
+            PararSimulacao();
+            Console.WriteLine("\n❌ Aquecimento cancelado!");
+            PauseComEspera();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"\n❌ Erro ao cancelar: {ex.Message}");
+            PauseComEspera();
+            return true;
+        }
+    }
+    private bool VerStatus()
+    {
+        Console.Clear();
+        Console.WriteLine("=== STATUS DO AQUECIMENTO ===\n");
+
+        if (_aquecimentoAtual == null)
+        {
+            Console.WriteLine("Nenhum aquecimento configurado.");
+            PauseComEspera();
+            return true;
+        }
+
+        Console.WriteLine($"ID: {_aquecimentoAtual.Id}");
+        Console.WriteLine($"Estado: {_aquecimentoAtual.Estado}");
+        Console.WriteLine(_aquecimentoAtual.StringInformativa);
+
+        PauseComEspera();
+        return true;
+    }
+    private bool AdicionarTempo()
+    {
+        if (_aquecimentoAtual == null)
+        {
+            Console.WriteLine("\n❌ Nenhum aquecimento para adicionar tempo!");
+            PauseComEspera();
+            return true;
+        }
+
+        Console.WriteLine("\n=== ADICIONAR TEMPO ===");
+        Console.Write("Informe quantos segundos deseja adicionar: ");
+
+        if (!int.TryParse(Console.ReadLine(), out int segundosAdicionais))
+        {
+            Console.WriteLine("❌ Entrada inválida! Digite um número inteiro.");
+            PauseComEspera();
+            return true;
+        }
+
+        try
+        {
+            _aquecimentoService.AdicionarTempo(_aquecimentoAtual.Id, segundosAdicionais);
+            // Recarrega o aquecimento atualizado se o service retornar algo assim
+            _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id);
+
+            Console.WriteLine("\n✅ Tempo adicionado com sucesso!");
+            Console.WriteLine(_aquecimentoAtual.StringInformativa);
+            PauseComEspera();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"\n❌ Erro ao adicionar tempo: {ex.Message}");
+            PauseComEspera();
+            return true;
+        }
+    }
+    private void PauseComEspera()
+    {
+        Console.WriteLine("\nPressione qualquer tecla para continuar...");
+        Console.ReadKey(true);
+    }
+
 }

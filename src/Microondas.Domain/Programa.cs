@@ -28,7 +28,8 @@ public class Programa
 
     public Aquecimento CriarAquecimento()
     {
-        return new Aquecimento(Tempo, Potencia);
+        var tempoVo = new Tempo(Tempo);
+        return new Aquecimento(tempoVo, Potencia);
     }
 
     private void ValidarIdentificador(string identificador)

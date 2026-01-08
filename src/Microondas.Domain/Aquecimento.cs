@@ -18,15 +18,15 @@ public class Aquecimento
     public Potencia Potencia { get; private set; }
     public EstadoAquecimento Estado { get; private set; }
     public string StringInformativa { get; private set; }
-
-    public Aquecimento(TimeSpan tempo, Potencia potencia)
+    public Aquecimento(Tempo tempo, Potencia potencia)
     {
-        ValidarTempo(tempo);
+        if (tempo is null) throw new ArgumentNullException(nameof(tempo));
+        if (potencia is null) throw new ArgumentNullException(nameof(potencia));
 
         Id = new Random().Next(1, 999999);
-        TempoTotal = tempo;
-        TempoRestante = tempo;
-        Potencia = potencia ?? throw new ArgumentNullException(nameof(potencia));
+        TempoTotal = tempo.Valor;
+        TempoRestante = tempo.Valor;
+        Potencia = potencia;
         Estado = EstadoAquecimento.Parado;
         StringInformativa = GerarStringInformativa()!;
     }
