@@ -103,4 +103,33 @@ public class AquecimentoService
             ? $"{(int)tempo.TotalSeconds}s"
             : $"{tempo.Minutes}m {tempo.Seconds}s";
     }
+
+    public void IniciarAquecimentoUI(int id)
+    {
+        var aquecimento = _aquecimentos.FirstOrDefault(a => a.Id == id)
+            ?? throw new InvalidOperationException($"Aquecimento {id} não encontrado");
+        aquecimento.Iniciar();
+    }
+
+    public void PausarAquecimentoUI(int id)
+    {
+        var aquecimento = _aquecimentos.FirstOrDefault(a => a.Id == id)
+            ?? throw new InvalidOperationException($"Aquecimento {id} não encontrado");
+        aquecimento.Pausar();
+    }
+
+    public void RetomarAquecimentoUI(int id)
+    {
+        var aquecimento = _aquecimentos.FirstOrDefault(a => a.Id == id)
+            ?? throw new InvalidOperationException($"Aquecimento {id} não encontrado");
+        aquecimento.Retomar();
+    }
+
+    public void CancelarAquecimentoUI(int id)
+    {
+        var aquecimento = _aquecimentos.FirstOrDefault(a => a.Id == id)
+            ?? throw new InvalidOperationException($"Aquecimento {id} não encontrado");
+        aquecimento.Cancelar();
+    }
+
 }

@@ -10,7 +10,7 @@ public class MicroondasUI
     private readonly AquecimentoService _aquecimentoService;
     private readonly ProgramaService _programaService;
 
-    private Aquecimento? _aquecimentoAtual;
+    private AquecimentoDTO? _aquecimentoAtual;
     private CancellationTokenSource? _cts;
     private Thread? _threadSimulacao;
 
