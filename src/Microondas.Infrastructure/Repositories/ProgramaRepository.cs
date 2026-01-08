@@ -35,12 +35,13 @@ public class ProgramaRepository : IProgramaRepository
 
     public IEnumerable<Programa> ObterTodos()
     {
-        return _programas.AsReadOnly();
+        // exposição como IEnumerable já impede alteração da lista por fora
+        return _programas;
     }
 
     public IEnumerable<Programa> ObterCustomizados()
     {
-        return _programas.Where(p => p.EhCustomizado).AsReadOnly();
+        return _programas.Where(p => p.EhCustomizado);
     }
 
     public void Atualizar(Programa programa)

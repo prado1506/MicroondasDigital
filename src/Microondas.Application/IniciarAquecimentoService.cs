@@ -1,4 +1,8 @@
-﻿public class IniciarAquecimentoService
+﻿using Microondas.Domain;
+
+namespace Microondas.Application;
+
+public class IniciarAquecimentoService
 {
     private readonly IAquecimentoRepository _repository;
 
@@ -16,6 +20,7 @@
         aquecimento.Iniciar();
 
         await _repository.AdicionarAsync(aquecimento);
+
         return aquecimento;
     }
 }
