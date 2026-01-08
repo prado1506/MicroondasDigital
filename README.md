@@ -123,8 +123,9 @@ MicroondasDigital/
 Este é um projeto de avaliação Coodesh. Siga as boas práticas de código e submeta suas implementações via commits bem estruturados.
 
 ## Autor
-**[seu_nome]** - Desenvolvedor  
+**Guilherme Prado** - Desenvolvedor  
 Data: Janeiro 2026
 
-## Licença
-Este projeto é fornecido como avaliação acadêmica.
+## Aviso
+Este projeto é fornecido como avaliação Pessoal.
+
