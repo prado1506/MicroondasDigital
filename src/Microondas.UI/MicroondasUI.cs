@@ -66,7 +66,7 @@ public class MicroondasUI
     {
         return opcao switch
         {
-            "1" => IniciarAquecimentoManual(),
+            "1" => IniciarAquecimentoManual(Get_aquecimentoService()),
             "2" => QuickStart(),
             "3" => PausarAquecimento(),
             "4" => RetomarAquecimento(),
@@ -78,7 +78,12 @@ public class MicroondasUI
         };
     }
 
-    private bool IniciarAquecimentoManual()
+    private AquecimentoService Get_aquecimentoService()
+    {
+        return _aquecimentoService;
+    }
+
+    private bool IniciarAquecimentoManual(AquecimentoService _aquecimentoService)
     {
         Console.Clear();
         Console.WriteLine("=== INICIAR AQUECIMENTO MANUAL ===\n");
@@ -112,17 +117,22 @@ public class MicroondasUI
 
         try
         {
-            var dto = new Microondas.Application.DTOs.CriarAquecimentoDTO(segundos, potencia);
+            var dto = new CriarAquecimentoDTO(segundos, potencia);
             var aquecimentoDto = _aquecimentoService.CriarAquecimento(dto);
-             _aquecimentoAtual = _aquecimentoService.ObterAquecimento(aquecimentoDto.Id) != null
-                 ? _aquecimentoAtual // mantém o objeto atual, pois não há método para obter o domínio
-                 : null;
+
+            AquecimentoDTO aquecimentoDTO = _aquecimentoService.ObterAquecimento(aquecimentoDto.Id);
+            _aquecimentoAtual = aquecimentoDTO;
 
             if (_aquecimentoAtual == null)
-                throw new InvalidOperationException("Falha ao recuperar aquecimento criado");
+            {
+                Console.WriteLine("❌ Falha ao recuperar aquecimento criado.");
+                PauseComEspera();
+                return true;
+            }
 
             IniciarAquecimento();
             return true;
+
         }
         catch (Exception ex)
         {
