@@ -132,4 +132,9 @@ public class AquecimentoService
         aquecimento.Cancelar();
     }
 
+
+ public Aquecimento? ObterAquecimentoDominio(int id)
+    {
+        return _aquecimentos.FirstOrDefault(a => a.Id == id);
+    }
 }
