@@ -1,135 +1,451 @@
 ﻿using Microondas.Application.DTOs;
+using Microondas.Application.Services;
 using Microondas.Domain;
+using Microondas.Infrastructure.Repositories;
 
-namespace Microondas.Application.Services;
+namespace Microondas.UI;
 
-public class AquecimentoService
+public class MicroondasUI
 {
-    private readonly List<Aquecimento> _aquecimentos = new();
+    private readonly AquecimentoService _aquecimentoService;
+    private readonly ProgramaService _programaService;
 
-    public AquecimentoDTO CriarAquecimento(CriarAquecimentoDTO dto)
+    private AquecimentoDTO? _aquecimentoAtual;
+    private CancellationTokenSource? _cts;
+    private Thread? _threadSimulacao;
+
+    public MicroondasUI()
     {
+        var programaRepository = new ProgramaRepository();
+        _programaService = new ProgramaService(programaRepository);
+        _aquecimentoService = new AquecimentoService();
+    }
+
+    public void Executar()
+    {
+        Console.Clear();
+        ExibirBemVindo();
+
+        bool continuar = true;
+        while (continuar)
+        {
+            ExibirMenuPrincipal();
+            string opcao = Console.ReadLine() ?? "";
+            continuar = ProcessarOpcaoMenuPrincipal(opcao);
+        }
+
+        Console.WriteLine("\nObrigado por usar o Micro-ondas Digital!");
+        Console.WriteLine("Pressione qualquer tecla para sair...");
+        Console.ReadKey();
+    }
+
+    private void ExibirBemVindo()
+    {
+        Console.WriteLine("║ *** MICRO-ONDAS DIGITAL ***        ║");
+    }
+
+    private void ExibirMenuPrincipal()
+    {
+        Console.WriteLine("\n--- MENU PRINCIPAL ---");
+        Console.WriteLine("1. Iniciar Aquecimento Manual");
+        Console.WriteLine("2. Quick Start (30s - Potência 10)");
+        Console.WriteLine("3. Pausar Aquecimento");
+        Console.WriteLine("4. Retomar Aquecimento");
+        Console.WriteLine("5. Adicionar Tempo");
+        Console.WriteLine("6. Cancelar Aquecimento");
+        Console.WriteLine("7. Ver Status");
+        Console.WriteLine("0. Sair");
+        Console.Write("\nEscolha uma opção: ");
+    }
+
+    private bool ProcessarOpcaoMenuPrincipal(string opcao)
+    {
+        return opcao switch
+        {
+            "1" => IniciarAquecimentoManual(Get_aquecimentoService()),
+            "2" => QuickStart(),
+            "3" => PausarAquecimento(),
+            "4" => RetomarAquecimento(),
+            "5" => AdicionarTempo(),
+            "6" => CancelarAquecimento(),
+            "7" => VerStatus(),
+            "0" => false,
+            _ => ExibirOpcaoInvalida()
+        };
+    }
+
+    private AquecimentoService Get_aquecimentoService()
+    {
+        return _aquecimentoService;
+    }
+
+    private bool IniciarAquecimentoManual(AquecimentoService _aquecimentoService)
+    {
+        Console.Clear();
+        Console.WriteLine("=== INICIAR AQUECIMENTO MANUAL ===\n");
+
+        if (_aquecimentoAtual != null && _aquecimentoAtual.Estado == EstadoAquecimento.Aquecendo)
+        {
+            Console.WriteLine("⚠️ Há um aquecimento em andamento. Cancelando...\n");
+            _aquecimentoAtual.Cancelar();
+            PararSimulacao();
+        }
+
+        Console.WriteLine("Tempo de aquecimento (em segundos):");
+        Console.WriteLine("Mínimo: 1s | Máximo: 120s (2 minutos)");
+        Console.Write("Digite o tempo: ");
+        if (!int.TryParse(Console.ReadLine(), out int segundos))
+        {
+            Console.WriteLine("❌ Entrada inválida! Digite um número inteiro.");
+            PauseComEspera();
+            return true;
+        }
+
+        Console.WriteLine("\nPotência de aquecimento:");
+        Console.WriteLine("Mínimo: 1 | Máximo: 10");
+        Console.Write("Digite a potência: ");
+        if (!int.TryParse(Console.ReadLine(), out int potencia))
+        {
+            Console.WriteLine("❌ Entrada inválida! Digite um número inteiro.");
+            PauseComEspera();
+            return true;
+        }
+
         try
         {
-            var potencia = new Potencia(dto.Potencia);
-            var tempo = new Tempo(TimeSpan.FromSeconds(dto.TempoSegundos));
-            var aquecimento = new Aquecimento(tempo, potencia);
+            var dto = new CriarAquecimentoDTO(segundos, potencia);
+            var aquecimentoDto = _aquecimentoService.CriarAquecimento(dto);
 
-            _aquecimentos.Add(aquecimento);
-            return MapearParaDTO(aquecimento);
+            AquecimentoDTO aquecimentoDTO = _aquecimentoService.ObterAquecimento(aquecimentoDto.Id);
+            _aquecimentoAtual = aquecimentoDTO;
+
+            if (_aquecimentoAtual == null)
+            {
+                Console.WriteLine("❌ Falha ao recuperar aquecimento criado.");
+                PauseComEspera();
+                return true;
+            }
+
+            IniciarAquecimento();
+            return true;
+
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"Erro ao criar aquecimento: {ex.Message}", ex);
+            Console.WriteLine($"❌ Erro: {ex.Message}");
+            PauseComEspera();
+            return true;
         }
     }
 
-    public AquecimentoDTO IniciarAquecimento(int id)
+    private bool QuickStart()
     {
-        var aquecimento = _aquecimentos.FirstOrDefault(a => a.Id == id)
-            ?? throw new InvalidOperationException($"Aquecimento {id} não encontrado");
+        Console.Clear();
+        Console.WriteLine("=== QUICK START ===\n");
+        Console.WriteLine("Configuração: 30 segundos | Potência 10");
+        Console.WriteLine("Pressione ENTER para iniciar...");
+        Console.ReadLine();
 
-        aquecimento.Iniciar();
-        return MapearParaDTO(aquecimento);
+        if (_aquecimentoAtual != null && _aquecimentoAtual.Estado == EstadoAquecimento.Aquecendo)
+        {
+            Console.WriteLine("⚠️ Cancelando aquecimento anterior...\n");
+            _aquecimentoAtual.Cancelar();
+            PararSimulacao();
+        }
+
+        try
+        {
+            var dto = new Microondas.Application.DTOs.CriarAquecimentoDTO(30, 10);
+            var aquecimentoDto = _aquecimentoService.CriarAquecimento(dto);
+            _aquecimentoAtual = _aquecimentoService.ObterAquecimento(aquecimentoDto.Id) != null
+                ? _aquecimentoAtual // mantém o objeto atual, pois não há método para obter o domínio
+                : null;
+
+            if (_aquecimentoAtual == null)
+                throw new InvalidOperationException("Falha ao recuperar aquecimento criado");
+
+            IniciarAquecimento();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Erro: {ex.Message}");
+            PauseComEspera();
+            return true;
+        }
     }
 
-    public AquecimentoDTO PausarAquecimento(int id)
+    private void IniciarAquecimento()
     {
-        var aquecimento = _aquecimentos.FirstOrDefault(a => a.Id == id)
-            ?? throw new InvalidOperationException($"Aquecimento {id} não encontrado");
+        if (_aquecimentoAtual == null)
+        {
+            Console.WriteLine("❌ Nenhum aquecimento disponível!");
+            return;
+        }
 
-        aquecimento.Pausar();
-        return MapearParaDTO(aquecimento);
+        try
+        {
+            _aquecimentoAtual.Iniciar();
+            Console.WriteLine("\n✅ Aquecimento iniciado!");
+            Console.WriteLine(_aquecimentoAtual.StringInformativa);
+
+            _cts = new CancellationTokenSource();
+            _threadSimulacao = new Thread(() => SimularAquecimento(_cts.Token))
+            {
+                IsBackground = true
+            };
+            _threadSimulacao.Start();
+
+            Console.WriteLine("\nDigite 'P' para pausar, 'C' para cancelar ou aguarde a conclusão...");
+            AguardarEntrada();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Erro ao iniciar: {ex.Message}");
+            PauseComEspera();
+        }
     }
 
-    public AquecimentoDTO RetomarAquecimento(int id)
+    private void SimularAquecimento(CancellationToken token)
     {
-        var aquecimento = _aquecimentos.FirstOrDefault(a => a.Id == id)
-            ?? throw new InvalidOperationException($"Aquecimento {id} não encontrado");
+        if (_aquecimentoAtual == null) return;
 
-        aquecimento.Retomar();
-        return MapearParaDTO(aquecimento);
+        while (!token.IsCancellationRequested && _aquecimentoAtual.Estado == EstadoAquecimento.Aquecendo)
+        {
+            Thread.Sleep(1000);
+            _aquecimentoService.SimularPassagemTempo(_aquecimentoAtual.Id);
+
+            Console.Clear();
+            ExibirTelaAquecimento();
+
+            if (_aquecimentoAtual.Estado == EstadoAquecimento.Concluido)
+            {
+                Console.WriteLine("\n✅ *** AQUECIMENTO CONCLUÍDO! ***");
+                Console.WriteLine("🔔 Beep! Beep! Beep!");
+                Thread.Sleep(2000);
+                break;
+            }
+        }
     }
 
-    public AquecimentoDTO CancelarAquecimento(int id)
+    private void ExibirTelaAquecimento()
     {
-        var aquecimento = _aquecimentos.FirstOrDefault(a => a.Id == id)
-            ?? throw new InvalidOperationException($"Aquecimento {id} não encontrado");
+        Console.WriteLine("=== AQUECIMENTO EM ANDAMENTO ===\n");
 
-        aquecimento.Cancelar();
-        return MapearParaDTO(aquecimento);
+        if (_aquecimentoAtual == null)
+        {
+            Console.WriteLine("Nenhum aquecimento em execução.");
+            return;
+        }
+
+        Console.WriteLine(_aquecimentoAtual.StringInformativa);
     }
 
-    public AquecimentoDTO AdicionarTempo(int id, int segundos)
+    private void AguardarEntrada()
     {
-        var aquecimento = _aquecimentos.FirstOrDefault(a => a.Id == id)
-            ?? throw new InvalidOperationException($"Aquecimento {id} não encontrado");
+        while (_aquecimentoAtual != null && _aquecimentoAtual.Estado == EstadoAquecimento.Aquecendo)
+        {
+            if (Console.KeyAvailable)
+            {
+                var tecla = Console.ReadKey(true).KeyChar;
+                if (char.ToUpper(tecla) == 'P')
+                {
+                    _aquecimentoAtual.Pausar();
+                    _cts?.Cancel();
+                    Console.WriteLine("\n⏸️ Aquecimento pausado!");
+                    Console.WriteLine(_aquecimentoAtual.StringInformativa);
+                    break;
+                }
+                else if (char.ToUpper(tecla) == 'C')
+                {
+                    _aquecimentoAtual.Cancelar();
+                    _cts?.Cancel();
+                    Console.WriteLine("\n❌ Aquecimento cancelado!");
+                    break;
+                }
+            }
 
-        aquecimento.AdicionarTempo(TimeSpan.FromSeconds(segundos));
-        return MapearParaDTO(aquecimento);
+            Thread.Sleep(100);
+        }
     }
 
-    public AquecimentoDTO ObterAquecimento(int id)
+    private bool PausarAquecimento()
     {
-        var aquecimento = _aquecimentos.FirstOrDefault(a => a.Id == id)
-            ?? throw new InvalidOperationException($"Aquecimento {id} não encontrado");
+        if (_aquecimentoAtual == null)
+        {
+            Console.WriteLine("\n❌ Nenhum aquecimento em andamento!");
+            PauseComEspera();
+            return true;
+        }
 
-        return MapearParaDTO(aquecimento);
+        try
+        {
+            _aquecimentoAtual.Pausar();
+            _cts?.Cancel();
+            PararSimulacao();
+
+            Console.WriteLine("\n⏸️ Aquecimento pausado!");
+            Console.WriteLine(_aquecimentoAtual.StringInformativa);
+            PauseComEspera();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"\n❌ Erro: {ex.Message}");
+            PauseComEspera();
+            return true;
+        }
     }
 
-    public void SimularPassagemTempo(int id)
+    private bool RetomarAquecimento()
     {
-        var aquecimento = _aquecimentos.FirstOrDefault(a => a.Id == id)
-            ?? throw new InvalidOperationException($"Aquecimento {id} não encontrado");
+        if (_aquecimentoAtual == null)
+        {
+            Console.WriteLine("\n❌ Nenhum aquecimento pausado!");
+            PauseComEspera();
+            return true;
+        }
 
-        aquecimento.DecrementarTempo();
+        try
+        {
+            _aquecimentoAtual.Retomar();
+            Console.WriteLine("\n▶️ Aquecimento retomado!");
+            Console.WriteLine(_aquecimentoAtual.StringInformativa);
+
+            _cts = new CancellationTokenSource();
+            _threadSimulacao = new Thread(() => SimularAquecimento(_cts.Token))
+            {
+                IsBackground = true
+            };
+            _threadSimulacao.Start();
+
+            AguardarEntrada();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"\n❌ Erro: {ex.Message}");
+            PauseComEspera();
+            return true;
+        }
     }
 
-    private static AquecimentoDTO MapearParaDTO(Aquecimento aquecimento)
+    private void PararSimulacao()
     {
-        return new AquecimentoDTO(
-            aquecimento.Id,
-            FormatarTempo(aquecimento.TempoTotal),
-            FormatarTempo(aquecimento.TempoRestante),
-            int.Parse(aquecimento.Potencia.ToString()),
-            aquecimento.Estado.ToString(),
-            aquecimento.StringInformativa
-        );
+        try
+        {
+            _cts?.Cancel();
+
+            if (_threadSimulacao != null && _threadSimulacao.IsAlive)
+            {
+                _threadSimulacao.Join(500);
+            }
+        }
+        finally
+        {
+            _cts = null;
+            _threadSimulacao = null;
+        }
     }
 
-    private static string FormatarTempo(TimeSpan tempo)
+    private bool CancelarAquecimento()
     {
-        return tempo.TotalSeconds < 60
-            ? $"{(int)tempo.TotalSeconds}s"
-            : $"{tempo.Minutes}m {tempo.Seconds}s";
+        if (_aquecimentoAtual == null)
+        {
+            Console.WriteLine("\n❌ Nenhum aquecimento em andamento!");
+            PauseComEspera();
+            return true;
+        }
+
+        try
+        {
+            _aquecimentoAtual.Cancelar();
+            PararSimulacao();
+
+            Console.WriteLine("\n❌ Aquecimento cancelado!");
+            PauseComEspera();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"\n❌ Erro ao cancelar: {ex.Message}");
+            PauseComEspera();
+            return true;
+        }
     }
 
-    public void IniciarAquecimentoUI(int id)
+    private bool VerStatus()
     {
-        var aquecimento = _aquecimentos.FirstOrDefault(a => a.Id == id)
-            ?? throw new InvalidOperationException($"Aquecimento {id} não encontrado");
-        aquecimento.Iniciar();
+        Console.Clear();
+        Console.WriteLine("=== STATUS DO AQUECIMENTO ===\n");
+
+        if (_aquecimentoAtual == null)
+        {
+            Console.WriteLine("Nenhum aquecimento configurado.");
+            PauseComEspera();
+            return true;
+        }
+
+        Console.WriteLine($"ID: {_aquecimentoAtual.Id}");
+        Console.WriteLine($"Estado: {_aquecimentoAtual.Estado}");
+        Console.WriteLine(_aquecimentoAtual.StringInformativa);
+
+        PauseComEspera();
+        return true;
     }
 
-    public void PausarAquecimentoUI(int id)
+    private bool AdicionarTempo()
     {
-        var aquecimento = _aquecimentos.FirstOrDefault(a => a.Id == id)
-            ?? throw new InvalidOperationException($"Aquecimento {id} não encontrado");
-        aquecimento.Pausar();
+        if (_aquecimentoAtual == null)
+        {
+            Console.WriteLine("\n❌ Nenhum aquecimento para adicionar tempo!");
+            PauseComEspera();
+            return true;
+        }
+
+        Console.WriteLine("\n=== ADICIONAR TEMPO ===");
+        Console.Write("Informe quantos segundos deseja adicionar: ");
+
+        if (!int.TryParse(Console.ReadLine(), out int segundosAdicionais))
+        {
+            Console.WriteLine("❌ Entrada inválida! Digite um número inteiro.");
+            PauseComEspera();
+            return true;
+        }
+
+        try
+        {
+            _aquecimentoService.AdicionarTempo(_aquecimentoAtual.Id, segundosAdicionais);
+            _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id) != null
+                ? _aquecimentoAtual // mantém o objeto atual, pois não há método para obter o domínio
+                : null;
+
+            Console.WriteLine("\n✅ Tempo adicionado com sucesso!");
+            if (_aquecimentoAtual != null)
+            {
+                Console.WriteLine(_aquecimentoAtual.StringInformativa);
+            }
+            PauseComEspera();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"\n❌ Erro ao adicionar tempo: {ex.Message}");
+            PauseComEspera();
+            return true;
+        }
     }
 
-    public void RetomarAquecimentoUI(int id)
+    private bool ExibirOpcaoInvalida()
     {
-        var aquecimento = _aquecimentos.FirstOrDefault(a => a.Id == id)
-            ?? throw new InvalidOperationException($"Aquecimento {id} não encontrado");
-        aquecimento.Retomar();
+        Console.WriteLine("\n❌ Opção inválida! Tente novamente.");
+        PauseComEspera();
+        return true;
     }
 
-    public void CancelarAquecimentoUI(int id)
+    private void PauseComEspera()
     {
-        var aquecimento = _aquecimentos.FirstOrDefault(a => a.Id == id)
-            ?? throw new InvalidOperationException($"Aquecimento {id} não encontrado");
-        aquecimento.Cancelar();
+        Console.WriteLine("\nPressione qualquer tecla para continuar...");
+        Console.ReadKey(true);
     }
-
 }
