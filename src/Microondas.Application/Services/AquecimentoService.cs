@@ -448,4 +448,14 @@ public class MicroondasUI
         Console.WriteLine("\nPressione qualquer tecla para continuar...");
         Console.ReadKey(true);
     }
+<<<<<<< HEAD
 }
+=======
+
+
+ public Aquecimento? ObterAquecimentoDominio(int id)
+    {
+        return _aquecimentos.FirstOrDefault(a => a.Id == id);
+    }
+}
+>>>>>>> 4af1a0c95f68c9431c6da1f5f23d3bde6a5cca29
