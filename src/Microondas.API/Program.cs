@@ -1,3 +1,4 @@
+using System;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
@@ -26,6 +27,27 @@ builder.Services.AddSwaggerGen();
 // Autenticação JWT
 var jwtSection = builder.Configuration.GetSection("Jwt");
 var jwt = jwtSection.Get<JwtSettings>() ?? new JwtSettings();
+
+// Validação e preparação da chave JWT (aceita Base64 ou texto)
+if (string.IsNullOrWhiteSpace(jwt.Key))
+    throw new InvalidOperationException("JWT key não configurada. Defina Jwt:Key via user-secrets ou variável de ambiente.");
+
+byte[] keyBytes;
+try
+{
+    // tenta decodificar Base64 (recomendado)
+    keyBytes = Convert.FromBase64String(jwt.Key);
+    if (keyBytes.Length < 32)
+        throw new InvalidOperationException("JWT key em Base64 é fraca (<256 bits). Use 32 bytes ou mais.");
+}
+catch (FormatException)
+{
+    // não era Base64, usa UTF8 como fallback (validar tamanho)
+    keyBytes = Encoding.UTF8.GetBytes(jwt.Key);
+    if (keyBytes.Length < 32)
+        throw new InvalidOperationException("JWT key fraca (texto <32 bytes). Forneça uma chave com pelo menos 32 bytes ou use Base64 de 32 bytes.");
+}
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -36,7 +58,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuerSigningKey = true,
             ValidIssuer = jwt.Issuer,
             ValidAudience = jwt.Audience,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.Key)),
+            IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
             ClockSkew = TimeSpan.Zero
         };
     });
@@ -54,7 +76,11 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+// Somente redireciona para HTTPS se houver uma URL HTTPS configurada (evita aviso/erro ao usar perfil HTTP)
+if (app.Urls.Any(u => u.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
+{
+    app.UseHttpsRedirection();
+}
 
 app.UseAuthentication();
 app.UseAuthorization();

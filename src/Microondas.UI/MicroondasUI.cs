@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -15,7 +16,7 @@ namespace Microondas.UI;
 
 public class MicroondasUI
 {
-    private readonly AquecimentoService _aquecimentoService;
+    private readonly AquecimentoService _aquecimentoService; // mantido para compatibilidade local, mas a UI usará a API
     private readonly ProgramaService _programaService;
 
     private AquecimentoDTO? _aquecimentoAtual;
@@ -36,9 +37,65 @@ public class MicroondasUI
 
     public MicroondasUI()
     {
-        // URL da API pode ser configurada por variável de ambiente MICROONDAS_API_URL
-        var apiUrl = Environment.GetEnvironmentVariable("MICROONDAS_API_URL") ?? "https://localhost:5001/";
-        _http = new HttpClient { BaseAddress = new Uri(apiUrl), Timeout = TimeSpan.FromSeconds(10) };
+        // URLs tentadas: primeiro a variável de ambiente (se existir) ou o HTTPS padrão, depois fallback HTTP
+        var apiUrlEnv = Environment.GetEnvironmentVariable("MICROONDAS_API_URL");
+        var preferredUrl = apiUrlEnv ?? "https://localhost:7198/";
+        var fallbackUrl = "http://localhost:5123/";
+        var allowInsecure = Environment.GetEnvironmentVariable("MICROONDAS_ALLOW_INSECURE") == "1";
+
+        HttpClient? chosen = null;
+        var candidates = new List<string> { preferredUrl };
+        if (string.IsNullOrWhiteSpace(apiUrlEnv))
+            candidates.Add(fallbackUrl);
+
+        foreach (var url in candidates)
+        {
+            HttpClientHandler? handler = null;
+            HttpClient client = null!;
+
+            try
+            {
+                if (allowInsecure && url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                {
+                    handler = new HttpClientHandler
+                    {
+                        ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+                    };
+                    client = new HttpClient(handler) { BaseAddress = new Uri(url), Timeout = TimeSpan.FromSeconds(2) };
+                }
+                else
+                {
+                    client = new HttpClient() { BaseAddress = new Uri(url), Timeout = TimeSpan.FromSeconds(2) };
+                }
+
+                // Chamada curta para verificar se a API responde. Usamos um endpoint existente (api/programa).
+                var resp = client.GetAsync("api/programa").GetAwaiter().GetResult();
+
+                // Aceita sucesso ou respostas válidas (mesmo 401/403) como indicação de que o servidor está lá.
+                if (resp.IsSuccessStatusCode ||
+                    resp.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
+                    resp.StatusCode == System.Net.HttpStatusCode.Forbidden ||
+                    resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    chosen = client;
+                    break;
+                }
+
+                client.Dispose();
+                handler?.Dispose();
+            }
+            catch
+            {
+                try { client?.Dispose(); } catch { }
+                try { handler?.Dispose(); } catch { }
+                // tenta próximo candidate
+            }
+        }
+
+        // Se não achou nenhum, cria cliente com a preferredUrl e timeout maior (as mensagens de erro tratarão a falha)
+        _http = chosen ?? new HttpClient { BaseAddress = new Uri(preferredUrl), Timeout = TimeSpan.FromSeconds(10) };
+
+        Console.WriteLine($"[DEBUG] MICROONDAS_API_URL = {_http.BaseAddress}");
 
         var programaRepository = new ProgramaRepository();
         _programaService = new ProgramaService(programaRepository);
@@ -319,7 +376,7 @@ public class MicroondasUI
         return sb.ToString();
     }
 
-    // Helper para mostrar mensagem simples dentro do fluxo do menu restrito
+    // Reintroduzido helper que faltava — exibe mensagem simples e faz pausa
     private bool ExibirMensagemTemporaria(string mensagem)
     {
         lock (_consoleLock)
@@ -329,6 +386,126 @@ public class MicroondasUI
         PauseComEspera();
         return true;
     }
+
+    // Helper para fazer e desserializar uma resposta JSON
+    private T? ReadJsonResponse<T>(HttpResponseMessage resp)
+    {
+        if (resp.IsSuccessStatusCode)
+        {
+            var s = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            return JsonSerializer.Deserialize<T>(s, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        }
+
+        if (resp.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            _accessToken = null;
+            _http.DefaultRequestHeaders.Authorization = null;
+            lock (_consoleLock) Console.WriteLine("\n🔒 Sessão expirada ou não autorizada. Faça login novamente.");
+            PauseComEspera();
+        }
+        else
+        {
+            lock (_consoleLock) Console.WriteLine($"\n❌ Erro: {resp.StatusCode} ({resp.ReasonPhrase})");
+            PauseComEspera();
+        }
+
+        return default;
+    }
+
+    // Helper para obter aquecimento via API (sincrono)
+    private AquecimentoDTO? GetAquecimentoFromApi(int id)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"api/aquecimento/{id}");
+        if (!string.IsNullOrWhiteSpace(_accessToken))
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _accessToken);
+
+        var resp = _http.SendAsync(req).GetAwaiter().GetResult();
+        return ReadJsonResponse<AquecimentoDTO>(resp);
+    }
+
+    // Helper para listar programas via API
+    private IEnumerable<ProgramaDTO> ListarProgramasFromApi()
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, "api/programa");
+        if (!string.IsNullOrWhiteSpace(_accessToken))
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _accessToken);
+
+        var resp = _http.SendAsync(req).GetAwaiter().GetResult();
+        var list = ReadJsonResponse<IEnumerable<ProgramaDTO>>(resp);
+        return list ?? Array.Empty<ProgramaDTO>();
+    }
+
+    // Helper para criar aquecimento via API
+    private AquecimentoDTO? CriarAquecimentoViaApi(CriarAquecimentoDTO dto)
+    {
+        var content = new StringContent(JsonSerializer.Serialize(dto), Encoding.UTF8, "application/json");
+        using var req = new HttpRequestMessage(HttpMethod.Post, "api/aquecimento/criar") { Content = content };
+        if (!string.IsNullOrWhiteSpace(_accessToken))
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _accessToken);
+
+        var resp = _http.SendAsync(req).GetAwaiter().GetResult();
+        return ReadJsonResponse<AquecimentoDTO>(resp);
+    }
+
+    // Helper para criar aquecimento com caractere via API
+    private AquecimentoDTO? CriarAquecimentoComCaractereViaApi(CriarAquecimentoDTO dto, char caract)
+    {
+        var content = new StringContent(JsonSerializer.Serialize(dto), Encoding.UTF8, "application/json");
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"api/aquecimento/criar-com-caractere?caractere={WebUtility.UrlEncode(caract.ToString())}") { Content = content };
+        if (!string.IsNullOrWhiteSpace(_accessToken))
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _accessToken);
+
+        var resp = _http.SendAsync(req).GetAwaiter().GetResult();
+        return ReadJsonResponse<AquecimentoDTO>(resp);
+    }
+
+    // Helper para iniciar/pausar/retomar/cancelar/adicionar/simular via API
+    private AquecimentoDTO? PostAquecimentoAction(int id, string action)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"api/aquecimento/{id}/{action}");
+        if (!string.IsNullOrWhiteSpace(_accessToken))
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _accessToken);
+
+        var resp = _http.SendAsync(req).GetAwaiter().GetResult();
+        return ReadJsonResponse<AquecimentoDTO>(resp);
+    }
+
+    // Helper para criar/obter programas via API
+    private ProgramaDTO? CriarProgramaViaApi(CriarProgramaDTO dto)
+    {
+        var content = new StringContent(JsonSerializer.Serialize(dto), Encoding.UTF8, "application/json");
+        using var req = new HttpRequestMessage(HttpMethod.Post, "api/programa") { Content = content };
+        if (!string.IsNullOrWhiteSpace(_accessToken))
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _accessToken);
+
+        var resp = _http.SendAsync(req).GetAwaiter().GetResult();
+        return ReadJsonResponse<ProgramaDTO>(resp);
+    }
+
+    private bool DeletarProgramaViaApi(string id)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Delete, $"api/programa/{id}");
+        if (!string.IsNullOrWhiteSpace(_accessToken))
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _accessToken);
+
+        var resp = _http.SendAsync(req).GetAwaiter().GetResult();
+        if (resp.IsSuccessStatusCode) return true;
+        ReadJsonResponse<object>(resp);
+        return false;
+    }
+
+    // Helper para simular passagem de tempo via API
+    private AquecimentoDTO? SimularPassagemTempoViaApi(int id)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"api/aquecimento/{id}/simular");
+        if (!string.IsNullOrWhiteSpace(_accessToken))
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _accessToken);
+
+        var resp = _http.SendAsync(req).GetAwaiter().GetResult();
+        return ReadJsonResponse<AquecimentoDTO>(resp);
+    }
+
+    // restante do código usa agora os helpers acima para operar via API
 
     private AquecimentoService Get_aquecimentoService()
     {
@@ -344,9 +521,10 @@ public class MicroondasUI
 
         if (_aquecimentoAtual != null && _aquecimentoAtual.Estado == EstadoAquecimento.Aquecendo.ToString())
         {
-            _aquecimentoService.CancelarAquecimento(_aquecimentoAtual.Id);
+            // cancelar via API também
+            var canceled = PostAquecimentoAction(_aquecimentoAtual.Id, "cancelar");
             PararSimulacao();
-            _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id);
+            _aquecimentoAtual = canceled ?? GetAquecimentoFromApi(_aquecimentoAtual.Id);
         }
 
         lock (_consoleLock)
@@ -382,19 +560,41 @@ public class MicroondasUI
         try
         {
             var dto = new CriarAquecimentoDTO(segundos, potencia);
-            var aquecimentoDto = _aquecimentoService.CriarAquecimento(dto);
+            var aquecimentoDto = CriarAquecimentoViaApi(dto);
 
-            _aquecimentoAtual = _aquecimentoService.ObterAquecimento(aquecimentoDto.Id);
+            _aquecimentoAtual = aquecimentoDto;
 
             if (_aquecimentoAtual == null)
             {
-                lock (_consoleLock) Console.WriteLine("❌ Falha ao recuperar aquecimento criado.");
+                lock (_consoleLock) Console.WriteLine("❌ Falha ao criar aquecimento via API.");
                 PauseComEspera();
                 return true;
             }
 
             _aquecimentoPredefinido = false; // garantido aquecimento manual
-            IniciarAquecimento();
+
+            // inicia via API
+            var started = PostAquecimentoAction(_aquecimentoAtual.Id, "iniciar");
+            _aquecimentoAtual = started ?? _aquecimentoAtual;
+
+            if (_aquecimentoAtual != null && _aquecimentoAtual.Estado == EstadoAquecimento.Aquecendo.ToString())
+            {
+                lock (_consoleLock)
+                {
+                    Console.WriteLine("\n✅ Aquecimento iniciado!");
+                    Console.WriteLine("\nDigite 'P' para pausar/cancelar ou aguarde a conclusão...");
+                    Console.WriteLine(_aquecimentoAtual.StringInformativa);
+                }
+
+                _cts = new CancellationTokenSource();
+                _threadSimulacao = new Thread(() => SimularAquecimento(_cts.Token))
+                {
+                    IsBackground = true
+                };
+                _threadSimulacao.Start();
+                AguardarEntrada();
+            }
+
             return true;
 
         }
@@ -423,27 +623,47 @@ public class MicroondasUI
 
         if (_aquecimentoAtual != null && _aquecimentoAtual.Estado == EstadoAquecimento.Aquecendo.ToString())
         {
-            // se já estava aquecendo, não iniciar outro -- cancelar primeiro
-            _aquecimentoService.CancelarAquecimento(_aquecimentoAtual.Id);
+            // cancelar via API
+            var canceled = PostAquecimentoAction(_aquecimentoAtual.Id, "cancelar");
             PararSimulacao();
-            _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id);
+            _aquecimentoAtual = canceled ?? GetAquecimentoFromApi(_aquecimentoAtual.Id);
         }
 
         try
         {
             var dto = new CriarAquecimentoDTO(30, 10);
-            var aquecimentoDto = _aquecimentoService.CriarAquecimento(dto);
-            _aquecimentoAtual = _aquecimentoService.ObterAquecimento(aquecimentoDto.Id);
+            var aquecimentoDto = CriarAquecimentoViaApi(dto);
+            _aquecimentoAtual = aquecimentoDto;
 
             if (_aquecimentoAtual == null)
             {
-                lock (_consoleLock) Console.WriteLine("Falha ao recuperar aquecimento criado");
+                lock (_consoleLock) Console.WriteLine("Falha ao criar aquecimento via API");
                 PauseComEspera();
                 return true;
             }
 
             _aquecimentoPredefinido = false; // QuickStart é considerado manual aqui
-            IniciarAquecimento();
+
+            var started = PostAquecimentoAction(_aquecimentoAtual.Id, "iniciar");
+            _aquecimentoAtual = started ?? _aquecimentoAtual;
+
+            if (_aquecimentoAtual != null && _aquecimentoAtual.Estado == EstadoAquecimento.Aquecendo.ToString())
+            {
+                lock (_consoleLock)
+                {
+                    Console.WriteLine("\n✅ Aquecimento iniciado!");
+                    Console.WriteLine(_aquecimentoAtual.StringInformativa);
+                }
+
+                _cts = new CancellationTokenSource();
+                _threadSimulacao = new Thread(() => SimularAquecimento(_cts.Token))
+                {
+                    IsBackground = true
+                };
+                _threadSimulacao.Start();
+                AguardarEntrada();
+            }
+
             return true;
         }
         catch (Exception ex)
@@ -456,39 +676,16 @@ public class MicroondasUI
 
     private void IniciarAquecimento()
     {
+        // agora o fluxo de início é feito por IniciarAquecimentoManual / QuickStart que chamam a API
         if (_aquecimentoAtual == null)
         {
             lock (_consoleLock) Console.WriteLine("❌ Nenhum aquecimento disponível!");
             return;
         }
 
-        try
+        lock (_consoleLock)
         {
-            _aquecimentoService.IniciarAquecimento(_aquecimentoAtual.Id);
-            _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id);
-
-            lock (_consoleLock)
-            {
-                Console.WriteLine("\n✅ Aquecimento iniciado!");
-                Console.WriteLine("\nDigite 'P' para pausar/cancelar ou aguarde a conclusão...");
-                if (_aquecimentoAtual != null)
-                    Console.WriteLine(_aquecimentoAtual.StringInformativa);
-                else
-                    Console.WriteLine("Informação do aquecimento indisponível.");
-            }
-
-            _cts = new CancellationTokenSource();
-            _threadSimulacao = new Thread(() => SimularAquecimento(_cts.Token))
-            {
-                IsBackground = true
-            };
-            _threadSimulacao.Start();
-            AguardarEntrada();
-        }
-        catch (Exception ex)
-        {
-            lock (_consoleLock) Console.WriteLine($"❌ Erro ao iniciar: {ex.Message}");
-            PauseComEspera();
+            Console.WriteLine("\nℹ️ Use o menu para iniciar/retomar o aquecimento via API.");
         }
     }
 
@@ -499,7 +696,10 @@ public class MicroondasUI
         while (!token.IsCancellationRequested && _aquecimentoAtual != null && _aquecimentoAtual.Estado == EstadoAquecimento.Aquecendo.ToString())
         {
             Thread.Sleep(1000);
-            _aquecimentoAtual = _aquecimentoService.SimularPassagemTempo(_aquecimentoAtual.Id);
+
+            var updated = SimularPassagemTempoViaApi(_aquecimentoAtual.Id);
+            if (updated != null)
+                _aquecimentoAtual = updated;
 
             if (_suspendStatusDisplay)
                 continue;
@@ -544,12 +744,12 @@ public class MicroondasUI
                 var tecla = Console.ReadKey(true).KeyChar;
                 if (char.ToUpper(tecla) == 'P')
                 {
-                    // durante aquecimento: P pausa
+                    // durante aquecimento: P pausa (via API)
                     _suspendStatusDisplay = true;
-                    _aquecimentoService.PausarAquecimento(_aquecimentoAtual.Id);
+                    var paused = PostAquecimentoAction(_aquecimentoAtual.Id, "pausar");
                     _cts?.Cancel();
                     PararSimulacao();
-                    _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id);
+                    _aquecimentoAtual = paused ?? GetAquecimentoFromApi(_aquecimentoAtual.Id);
 
                     lock (_consoleLock)
                     {
@@ -590,12 +790,12 @@ public class MicroondasUI
 
             if (estado == EstadoAquecimento.Aquecendo.ToString())
             {
-                // se estiver aquecendo, pausa
+                // se estiver aquecendo, pausa via API
                 _suspendStatusDisplay = true;
-                _aquecimentoService.PausarAquecimento(_aquecimentoAtual.Id);
+                var paused = PostAquecimentoAction(_aquecimentoAtual.Id, "pausar");
                 _cts?.Cancel();
                 PararSimulacao();
-                _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id);
+                _aquecimentoAtual = paused ?? GetAquecimentoFromApi(_aquecimentoAtual.Id);
 
                 Console.WriteLine("\n⏸️ Aquecimento pausado!");
                 if (_aquecimentoAtual != null)
@@ -608,9 +808,9 @@ public class MicroondasUI
 
             if (estado == EstadoAquecimento.Pausado.ToString())
             {
-                // se estiver pausado e pressionar novamente, cancela e limpa estado
+                // se estiver pausado e pressionar novamente, cancela e limpa estado (via API)
                 _suspendStatusDisplay = true;
-                _aquecimentoService.CancelarAquecimento(_aquecimentoAtual.Id);
+                var canceled = PostAquecimentoAction(_aquecimentoAtual.Id, "cancelar");
                 _cts?.Cancel();
                 PararSimulacao();
                 _aquecimentoAtual = null;
@@ -645,10 +845,10 @@ public class MicroondasUI
         {
             _suspendStatusDisplay = true;
 
-            _aquecimentoService.PausarAquecimento(_aquecimentoAtual.Id);
+            var paused = PostAquecimentoAction(_aquecimentoAtual.Id, "pausar");
             _cts?.Cancel();
             PararSimulacao();
-            _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id);
+            _aquecimentoAtual = paused ?? GetAquecimentoFromApi(_aquecimentoAtual.Id);
 
             lock (_consoleLock)
             {
@@ -684,8 +884,8 @@ public class MicroondasUI
 
         try
         {
-            _aquecimentoService.RetomarAquecimento(_aquecimentoAtual.Id);
-            _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id);
+            var resumed = PostAquecimentoAction(_aquecimentoAtual.Id, "retomar");
+            _aquecimentoAtual = resumed ?? GetAquecimentoFromApi(_aquecimentoAtual.Id);
 
             lock (_consoleLock)
             {
@@ -746,10 +946,10 @@ public class MicroondasUI
         {
             _suspendStatusDisplay = true;
 
-            _aquecimentoService.CancelarAquecimento(_aquecimentoAtual.Id);
+            var canceled = PostAquecimentoAction(_aquecimentoAtual.Id, "cancelar");
             _cts?.Cancel();
             PararSimulacao();
-            _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id);
+            _aquecimentoAtual = null;
             _aquecimentoPredefinido = false;
 
             lock (_consoleLock)
@@ -812,8 +1012,8 @@ public class MicroondasUI
 
         try
         {
-            _aquecimentoService.AdicionarTempo(_aquecimentoAtual.Id);
-            _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id);
+            var added = PostAquecimentoAction(_aquecimentoAtual.Id, "adicionar-tempo");
+            _aquecimentoAtual = added ?? GetAquecimentoFromApi(_aquecimentoAtual.Id);
 
             lock (_consoleLock)
             {
@@ -854,7 +1054,7 @@ public class MicroondasUI
 
     private bool SelecionarProgramaPredefinido()
     {
-        var programas = _programaService.ListarTodos().ToList();
+        var programas = ListarProgramasFromApi().ToList();
         if (!programas.Any())
         {
             lock (_consoleLock) Console.WriteLine("\nNenhum programa disponível.");
@@ -879,7 +1079,7 @@ public class MicroondasUI
         if (string.IsNullOrEmpty(escolha))
             return true;
 
-        var programaDto = _programaService.ObterPrograma(escolha);
+        var programaDto = programas.FirstOrDefault(p => p.Identificador == escolha);
         if (programaDto == null)
         {
             lock (_consoleLock) Console.WriteLine("\nPrograma não encontrado.");
@@ -891,8 +1091,8 @@ public class MicroondasUI
         try
         {
             var criarDto = new CriarAquecimentoDTO(programaDto.TempoSegundos, programaDto.Potencia);
-            var aqu = _aquecimentoService.CriarAquecimentoComCaractere(criarDto, programaDto.CaractereProgresso[0]);
-            _aquecimentoAtual = _aquecimentoService.ObterAquecimento(aqu.Id);
+            var aqu = CriarAquecimentoComCaractereViaApi(criarDto, programaDto.CaractereProgresso[0]);
+            _aquecimentoAtual = aqu;
             _aquecimentoPredefinido = true;
 
             lock (_consoleLock)
@@ -902,7 +1102,19 @@ public class MicroondasUI
             }
 
             // inicia automaticamente (mantido comportamento atual)
-            IniciarAquecimento();
+            var started = PostAquecimentoAction(_aquecimentoAtual.Id, "iniciar");
+            _aquecimentoAtual = started ?? _aquecimentoAtual;
+
+            if (_aquecimentoAtual != null && _aquecimentoAtual.Estado == EstadoAquecimento.Aquecendo.ToString())
+            {
+                _cts = new CancellationTokenSource();
+                _threadSimulacao = new Thread(() => SimularAquecimento(_cts.Token))
+                {
+                    IsBackground = true
+                };
+                _threadSimulacao.Start();
+            }
+
             return true;
         }
         catch (Exception ex)
@@ -920,7 +1132,7 @@ public class MicroondasUI
         {
             Console.WriteLine("\n=== REGISTRAR PROGRAMA CUSTOMIZADO ===\n");
 
-            var todos = _programaService.ListarTodos().ToList();
+            var todos = ListarProgramasFromApi().ToList();
 
             // Identificadores já em uso
             var ids = todos.Any() ? string.Join(", ", todos.Select(p => p.Identificador)) : "(nenhum)";
@@ -1005,7 +1217,7 @@ public class MicroondasUI
         }
 
         // Verifica duplicidade do caractere de aquecimento antes de tentar criar (feedback imediato)
-        var indisponiveis = _programaService.ListarTodos()
+        var indisponiveis = ListarProgramasFromApi()
             .Select(p => p.CaractereProgresso)
             .Where(s => !string.IsNullOrEmpty(s))
             .Select(s => s[0])
@@ -1024,7 +1236,14 @@ public class MicroondasUI
         try
         {
             var dto = new CriarProgramaDTO(id, nome, alimento, tempoSegundos, potencia, caract.ToString(), instrucoes);
-            var programaDto = _programaService.CriarPrograma(dto);
+            var programaDto = CriarProgramaViaApi(dto);
+
+            if (programaDto == null)
+            {
+                lock (_consoleLock) Console.WriteLine("\n❌ Falha ao criar programa via API.");
+                PauseComEspera();
+                return true;
+            }
 
             lock (_consoleLock)
             {

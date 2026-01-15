@@ -1,0 +1,20 @@
+{
+  "profiles": {
+    "Microondas.UI": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "MICROONDAS_API_URL": "https://localhost:5123/",
+        "MICROONDAS_ALLOW_INSECURE": "0"
+      }
+    },
+    "Microondas.UI (HTTP Fallback)": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development2",
+        "MICROONDAS_API_URL": "http://localhost:7198/",
+        "MICROONDAS_ALLOW_INSECURE": "1"
+      }
+    }
+  }
+}

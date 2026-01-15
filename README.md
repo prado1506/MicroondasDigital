@@ -7,9 +7,10 @@ Sistema de micro-ondas digital desenvolvido em .NET com arquitetura em camadas, 
 - [x] Nível 1: Aquecimento básico com validações
 - [x] Nível 2: Programas pré-definidos
 - [x] Nível 3: Cadastro de programas customizados
-- [ ] Nível 4: Web API com autenticação
+- [x] Nível 4: Web API com autenticação
 
 ## Estrutura do Projeto
+
 
 ```
 MicroondasDigital/
@@ -27,31 +28,29 @@ MicroondasDigital/
 ```
 
 ## Tecnologias
-- **.NET 6.0+** ou **.NET Framework 4.0+**
-- **C# 10+**
+- **.NET 8**
+- **C# 12**
 - **xUnit** para testes
 - **SQL Server / JSON** para persistência
 
 ## Requisitos Obrigatórios
 ✓ Orientação a Objetos  
-✓ .NET Framework 4.0 ou superior  
+✓ .NET 6.0 ou superior  
 ✓ Separação de camadas (UI + Negócio)  
 ✓ Funcionamento conforme especificações  
 
-## Requisitos Desejáveis
-✓ SOLID principles  
-✓ Design Patterns  
-✓ Testes unitários  
-✓ Documentação de código  
-✓ Proteção de dados e métodos  
-
 ## Como Executar
+    ```bash
+    dotnet run --project src/Microondas.API/Microondas.API.csproj
+    dotnet run --project src\Microondas.UI\Microondas.UI.csproj
+    ```
 
 ### Pré-requisitos
-- .NET SDK 6.0+ ou Visual Studio
+- .NET SDK 8.0+ ou Visual Studio 2022/2024/2026
 - Git
 
-### Passos
+### Passos rápidos (linha de comando)
+
 1. Clone o repositório:
    ```bash
    git clone https://github.com/prado1506/MicroondasDigital.git
@@ -68,7 +67,15 @@ MicroondasDigital/
    dotnet run --project src/Microondas.UI
    ```
 
-4. Execute os testes:
+4. Em outra sessão/terminal, execute a UI:
+   - Se a API rodar em http://localhost:5123:
+     ```powershell
+     $env:MICROONDAS_API_URL = "http://localhost:5123/"
+     dotnet run --project src/Microondas.UI/Microondas.UI.csproj
+     ```
+   - Ou ajuste `MICROONDAS_API_URL` conforme a URL informada pelo Kestrel.
+
+5. Execute os testes:
    ```bash
    dotnet test
    ```
@@ -100,8 +107,22 @@ MicroondasDigital/
 - Endpoints para todos os métodos de negócio
 - Tratamento estruturado de exceções
 - Logging de erros
-- Criptografia SHA256 de senhas
-- Connection string criptografada (SQL Server)
+- Criptografia de senhas usando SHA-256 (detalhes abaixo)
+- Connection string criptografada (quando aplicável)
+
+Observação sobre hashing de senha
+- O requisito textual mencionava "SHA1 (256 bits)", o que é inconsistente (SHA‑1 não tem 256 bits). Este projeto utiliza SHA‑256 para persistência de senha, por ser um algoritmo robusto e amplamente recomendado atualmente.
+- Implementação: `src/Microondas.API/Security/HashHelper.cs` fornece `Sha256Hex(string)` que retorna o hash em formato hexadecimal (lowercase).
+- Raciocínio: SHA‑256 é preferível em relação a SHA‑1 por motivos de segurança. Se for necessário cumprir uma especificação externa que exija outro algoritmo, favor indicar explicitamente — mas a recomendação é manter SHA‑256.
+- Como verificar/generar hash localmente:
+  - Em PowerShell:
+    ```powershell
+    $pwd = "suaSenha"
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($pwd)
+    $hash = [System.Security.Cryptography.SHA256]::Create().ComputeHash($bytes)
+    [System.BitConverter]::ToString($hash).Replace("-","").ToLower()
+    ```
+  - O endpoint `POST /api/auth/configurar` recebe `username` e `password` em texto e grava o hash SHA‑256 no arquivo `auth_config.json` (em runtime). Em produção, recomenda-se usar um secret manager (Key Vault/Secrets Manager) em vez de arquivo.
 
 ## Arquitetura
 
@@ -119,6 +140,16 @@ MicroondasDigital/
 - Strategy Pattern (diferentes modos de aquecimento)
 - Dependency Injection
 
+## Segurança e Configuração
+- JWT: chave `Jwt:Key` deve ser configurada via `dotnet user-secrets` em desenvolvimento ou variável de ambiente em produção. Não comitar a chave no repositório.
+- Se optar por usar Base64 para a chave JWT, decodifique-a em `Program.cs` antes de criar `SymmetricSecurityKey`.
+- Em produção, mover armazenamento de credenciais (atualmente `auth_config.json`) para um cofre de segredos.
+
+## Tratamento de Erros e Logging
+- Middleware centralizado trata exceções e retorna JSON padrão (`StandardError`).
+- `BusinessException` existe para regras de negócio (retorna 400).
+- Exceções não tratadas são logadas em `logs/exceptions-YYYYMMDD.log` com stacktrace e inner exceptions.
+
 ## Contribuindo
 Este é um projeto de avaliação Coodesh. Siga as boas práticas de código e submeta suas implementações via commits bem estruturados.
 
@@ -129,5 +160,12 @@ Data: Janeiro 2026
 ## Aviso
 Este projeto é fornecido como avaliação Pessoal.
 
+## Nível 4 — Observações Rápidas
+- Autenticação via JWT Bearer; configure `Jwt:Key` via user-secrets ou variável de ambiente.
+- Senhas persistidas com SHA‑256 (veja `src/Microondas.API/Security/HashHelper.cs`).
+- Middleware centralizado trata exceções e grava logs em `logs/`.
 
+## Segurança e Configuração
+  - `Jwt:Key`.
+- já faz a decodificação automática e valida mínimo de 32 bytes.
 
