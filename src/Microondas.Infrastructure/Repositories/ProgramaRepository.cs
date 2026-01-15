@@ -1,16 +1,19 @@
 ﻿using Microondas.Domain;
-using System.Xml.Linq;
+using System.Text.Json;
 
 namespace Microondas.Infrastructure.Repositories;
 
 public class ProgramaRepository : IProgramaRepository
 {
     private readonly List<Programa> _programas = new();
+    private readonly string _filePathCustom;
 
     public ProgramaRepository()
     {
-        // Inicializar com programas pré-definidos
-        InitializarProgramasPadroes();
+        _filePathCustom = Path.Combine(AppContext.BaseDirectory, "programas_customizados.json");
+        // Inicializar com programas pré-definidos + carregar customizados do disco
+        InicializarProgramasPadroes();
+        CarregarProgramasCustomizados();
     }
 
     public void Adicionar(Programa programa)
@@ -21,7 +24,17 @@ public class ProgramaRepository : IProgramaRepository
         if (Existe(programa.Identificador))
             throw new InvalidOperationException($"Programa '{programa.Identificador}' já existe");
 
+        // valida unicidade do caractere de progresso e proíbe '.'
+        if (programa.CaractereProgresso == '.')
+            throw new InvalidOperationException("Caractere de aquecimento '.' é reservado e não pode ser usado.");
+
+        if (_programas.Any(p => p.CaractereProgresso == programa.CaractereProgresso))
+            throw new InvalidOperationException($"Caractere de aquecimento '{programa.CaractereProgresso}' já está em uso por outro programa.");
+
         _programas.Add(programa);
+
+        if (programa.EhCustomizado)
+            SalvarProgramasCustomizados();
     }
 
     public Programa? ObterPorIdentificador(string identificador)
@@ -56,8 +69,15 @@ public class ProgramaRepository : IProgramaRepository
         if (!existente.EhCustomizado)
             throw new InvalidOperationException("Programas pré-definidos não podem ser atualizados");
 
+        // valida unicidade caractere (exceto contra si mesmo)
+        if (programa.CaractereProgresso == '.')
+            throw new InvalidOperationException("Caractere de aquecimento '.' é reservado e não pode ser usado.");
+        if (_programas.Any(p => p.Identificador != existente.Identificador && p.CaractereProgresso == programa.CaractereProgresso))
+            throw new InvalidOperationException($"Caractere de aquecimento '{programa.CaractereProgresso}' já está em uso por outro programa.");
+
         var indice = _programas.IndexOf(existente);
         _programas[indice] = programa;
+        SalvarProgramasCustomizados();
     }
 
     public void Remover(string identificador)
@@ -69,6 +89,7 @@ public class ProgramaRepository : IProgramaRepository
                 throw new InvalidOperationException("Programas pré-definidos não podem ser removidos");
 
             _programas.Remove(programa);
+            SalvarProgramasCustomizados();
         }
     }
 
@@ -80,10 +101,12 @@ public class ProgramaRepository : IProgramaRepository
     public void Limpar()
     {
         _programas.Clear();
-        InitializarProgramasPadroes();
+        InicializarProgramasPadroes();
+        // mantém o arquivo de customizados como está — re-carregar a seguir
+        CarregarProgramasCustomizados();
     }
 
-    private void InitializarProgramasPadroes()
+    private void InicializarProgramasPadroes()
     {
         // Remover apenas customizados (se houver)
         var customizados = _programas.Where(p => p.EhCustomizado).ToList();
@@ -92,7 +115,7 @@ public class ProgramaRepository : IProgramaRepository
 
         // Programas Pré-definidos (Nível 2)
         _programas.Add(new Programa(
-            "X", "Pipoca",
+            "X", "Pipoca", "Pipoca",
             TimeSpan.FromMinutes(3), // 3 min
             new Potencia(7),
             "Pipoca: pare quando o estouro diminuir.",
@@ -101,7 +124,7 @@ public class ProgramaRepository : IProgramaRepository
         ));
 
         _programas.Add(new Programa(
-            "M", "Leite",
+            "M", "Leite", "Leite",
             TimeSpan.FromMinutes(5), // 5 min
             new Potencia(5),
             "Leite: cuidado com líquidos quentes. Não superaquecer.",
@@ -110,7 +133,7 @@ public class ProgramaRepository : IProgramaRepository
         ));
 
         _programas.Add(new Programa(
-            "B", "Carne",
+            "B", "Carne", "Carne",
             TimeSpan.FromMinutes(14), // 14 min
             new Potencia(4),
             "Carne: vire na metade do tempo.",
@@ -119,7 +142,7 @@ public class ProgramaRepository : IProgramaRepository
         ));
 
         _programas.Add(new Programa(
-            "C", "Frango",
+            "C", "Frango", "Frango",
             TimeSpan.FromMinutes(8), // 8 min
             new Potencia(7),
             "Frango: vire na metade do tempo.",
@@ -128,12 +151,100 @@ public class ProgramaRepository : IProgramaRepository
         ));
 
         _programas.Add(new Programa(
-            "J", "Feijão",
+            "J", "Feijão", "Feijão",
             TimeSpan.FromMinutes(8), // 8 min
             new Potencia(9),
             "Feijão: aqueça descoberto. Cuidado com recipientes plásticos.",
             false,
             '!' 
         ));
+    }
+
+    private void SalvarProgramasCustomizados()
+    {
+        try
+        {
+            var custom = _programas.Where(p => p.EhCustomizado)
+                .Select(p => new SerializablePrograma
+                {
+                    Identificador = p.Identificador,
+                    Nome = p.Nome,
+                    Alimento = p.Alimento,
+                    TempoSegundos = (int)p.Tempo.TotalSeconds,
+                    Potencia = int.Parse(p.Potencia.ToString()),
+                    Instrucoes = p.Instrucoes ?? string.Empty,
+                    CaractereProgresso = p.CaractereProgresso
+                }).ToList();
+
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            var json = JsonSerializer.Serialize(custom, options);
+            File.WriteAllText(_filePathCustom, json);
+        }
+        catch
+        {
+            // Não propagar exceções de I/O para não quebrar fluxo principal;
+            // log poderia ser adicionado aqui.
+        }
+    }
+
+    private void CarregarProgramasCustomizados()
+    {
+        try
+        {
+            if (!File.Exists(_filePathCustom))
+                return;
+
+            var json = File.ReadAllText(_filePathCustom);
+            var list = JsonSerializer.Deserialize<List<SerializablePrograma>>(json);
+            if (list == null) return;
+
+            foreach (var s in list)
+            {
+                // valida unicidade do identificador e do caractere
+                if (string.IsNullOrWhiteSpace(s.Identificador) || s.Identificador.Length != 1)
+                    continue;
+
+                if (_programas.Any(p => p.Identificador.Equals(s.Identificador, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                if (s.CaractereProgresso == '.' || _programas.Any(p => p.CaractereProgresso == s.CaractereProgresso))
+                    continue;
+
+                try
+                {
+                    var programa = new Programa(
+                        s.Identificador,
+                        s.Nome,
+                        s.Alimento,
+                        TimeSpan.FromSeconds(s.TempoSegundos),
+                        new Potencia(s.Potencia),
+                        s.Instrucoes,
+                        true,
+                        s.CaractereProgresso
+                    );
+
+                    _programas.Add(programa);
+                }
+                catch
+                {
+                    // ignora entradas inválidas
+                }
+            }
+        }
+        catch
+        {
+            // ignora erros de I/O/parse
+        }
+    }
+
+    private class SerializablePrograma
+    {
+        public string Identificador { get; set; } = "";
+        public string Nome { get; set; } = "";
+        public string Alimento { get; set; } = "";
+        public int TempoSegundos { get; set; }
+        public int Potencia { get; set; }
+        public string Instrucoes { get; set; } = "";
+        public char CaractereProgresso { get; set; }
     }
 }

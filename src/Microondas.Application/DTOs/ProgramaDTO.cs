@@ -3,6 +3,7 @@
 public record ProgramaDTO(
     string Identificador,
     string Nome,
+    string Alimento,
     string Tempo,
     int TempoSegundos,
     int Potencia,
@@ -14,7 +15,9 @@ public record ProgramaDTO(
 public record CriarProgramaDTO(
     string Identificador,
     string Nome,
+    string Alimento,
     int TempoSegundos,
     int Potencia,
-    string Instrucoes
+    string CaractereProgresso,
+    string Instrucoes = ""
 );

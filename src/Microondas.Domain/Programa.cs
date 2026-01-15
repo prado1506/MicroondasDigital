@@ -4,6 +4,7 @@ public class Programa
 {
     public string Identificador { get; private set; } // Caractere único: "X", "M", "B", "C", "J" ou customizado
     public string Nome { get; private set; }
+    public string Alimento { get; private set; }
     public TimeSpan Tempo { get; private set; }
     public Potencia Potencia { get; private set; }
     public string Instrucoes { get; private set; }
@@ -15,13 +16,14 @@ public class Programa
 
     private Programa() { }
 
-    public Programa(string identificador, string nome, TimeSpan tempo, Potencia potencia,
+    public Programa(string identificador, string nome, string alimento, TimeSpan tempo, Potencia potencia,
                    string instrucoes, bool ehCustomizado = false, char caractereProgresso = '.')
     {
         ValidarIdentificador(identificador);
 
         Identificador = identificador.ToUpper();
         Nome = nome ?? throw new ArgumentNullException(nameof(nome));
+        Alimento = alimento ?? string.Empty;
         Tempo = tempo;
         Potencia = potencia ?? throw new ArgumentNullException(nameof(potencia));
         Instrucoes = instrucoes ?? string.Empty;
@@ -46,6 +48,7 @@ public class Programa
     public override string ToString()
     {
         var estilo = EhCustomizado ? " (customizado)" : "";
-        return $"[{Identificador}] {Nome}{estilo} - {Tempo.Minutes}m {Tempo.Seconds}s @ Potência {Potencia}";
+        var alimento = string.IsNullOrWhiteSpace(Alimento) ? "" : $" - {Alimento}";
+        return $"[{Identificador}] {Nome}{alimento}{estilo} - {Tempo.Minutes}m {Tempo.Seconds}s @ Potência {Potencia}";
     }
 }

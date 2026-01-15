@@ -17,19 +17,37 @@ public class ProgramaService
     {
         try
         {
-            if (_repository.Existe(dto.Identificador))
-                throw new InvalidOperationException($"Programa com identificador '{dto.Identificador}' já existe");
+            if (dto == null) throw new ArgumentNullException(nameof(dto));
+
+            var identificador = dto.Identificador?.Trim().ToUpper() ?? throw new ArgumentException("Identificador obrigatório");
+            if (identificador.Length != 1)
+                throw new InvalidOperationException("Identificador deve ser um único caractere");
+
+            if (_repository.Existe(identificador))
+                throw new InvalidOperationException($"Programa com identificador '{identificador}' já existe");
+
+            if (string.IsNullOrWhiteSpace(dto.CaractereProgresso) || dto.CaractereProgresso.Length != 1)
+                throw new InvalidOperationException("Caractere de aquecimento obrigatório (um único caractere)");
+
+            var caract = dto.CaractereProgresso[0];
+            if (caract == '.')
+                throw new InvalidOperationException("Caractere '.' é reservado e não pode ser usado por programas customizados");
+
+            if (_repository.ObterTodos().Any(p => p.CaractereProgresso == caract))
+                throw new InvalidOperationException($"Caractere de aquecimento '{caract}' já está em uso");
 
             var potencia = new Potencia(dto.Potencia);
             var tempo = TimeSpan.FromSeconds(dto.TempoSegundos);
+
             var programa = new Programa(
-                dto.Identificador,
+                identificador,
                 dto.Nome,
+                dto.Alimento,
                 tempo,
                 potencia,
-                dto.Instrucoes,
+                dto.Instrucoes ?? string.Empty,
                 ehCustomizado: true,
-                caractereProgresso: '.' // customizados usam . por padrão
+                caractereProgresso: caract
             );
 
             _repository.Adicionar(programa);
@@ -90,6 +108,7 @@ public class ProgramaService
         return new ProgramaDTO(
             programa.Identificador,
             programa.Nome,
+            programa.Alimento,
             FormatarTempo(programa.Tempo),
             (int)programa.Tempo.TotalSeconds,
             int.Parse(programa.Potencia.ToString()),

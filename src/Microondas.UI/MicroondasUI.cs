@@ -104,6 +104,7 @@ public class MicroondasUI
                 Console.WriteLine("4. Adicionar Tempo (+30s)");
                 Console.WriteLine("5. Ver Status");
                 Console.WriteLine("6. Selecionar Programa Pré-Definido");
+                Console.WriteLine("7. Registrar Programa Customizado");
                 Console.WriteLine("0. Sair");
                 Console.WriteLine("P. Pausar/Cancelar");
                 Console.Write("\nEscolha uma opção: ");
@@ -147,6 +148,7 @@ public class MicroondasUI
             "4" => AdicionarTempo(),
             "5" => VerStatus(),
             "6" => SelecionarProgramaPredefinido(),
+            "7" => RegistrarProgramaCustomizado(),
             "0" => false,
             "p" or "P" => BotaoP(),
             _ => ExibirOpcaoInvalida()
@@ -687,29 +689,30 @@ public class MicroondasUI
 
     private bool SelecionarProgramaPredefinido()
     {
-        var programas = _programaService.ListarProgramasPreDefinidos().ToList();
+        var programas = _programaService.ListarTodos().ToList();
         if (!programas.Any())
         {
-            lock (_consoleLock) Console.WriteLine("\nNenhum programa pré-definido disponível.");
+            lock (_consoleLock) Console.WriteLine("\nNenhum programa disponível.");
             PauseComEspera();
             return true;
         }
 
         lock (_consoleLock)
         {
-            Console.WriteLine("\n--- PROGRAMAS PRÉ-DEFINIDOS ---");
+            Console.WriteLine("\n--- PROGRAMAS (Pré-definidos e Customizados) ---");
             foreach (var p in programas)
             {
-                Console.WriteLine($"[{p.Identificador}] {p.Nome} - {p.Tempo} @ Potência {p.Potencia} | Instruções: {p.Instrucoes}");
+                if (p.EhCustomizado)
+                    Console.WriteLine($"[{p.Identificador}] {p.Nome} (customizado) - {p.Alimento} - {p.Tempo} @ Potência {p.Potencia} | Instruções: {p.Instrucoes}");
+                else
+                    Console.WriteLine($"[{p.Identificador}] {p.Nome} - {p.Alimento} - {p.Tempo} @ Potência {p.Potencia} | Instruções: {p.Instrucoes}");
             }
             Console.Write("\nDigite o identificador do programa para selecionar (ex: X): ");
         }
 
         var escolha = (Console.ReadLine() ?? "").Trim().ToUpper();
         if (string.IsNullOrEmpty(escolha))
-        {
             return true;
-        }
 
         var programaDto = _programaService.ObterPrograma(escolha);
         if (programaDto == null)
@@ -719,11 +722,11 @@ public class MicroondasUI
             return true;
         }
 
-        // auto-preenche e bloqueia — criar aquecimento usando o caractere do programa e permitindo tempo >120s
+        // criar aquecimento com o DTO correto (tempo + potência) e usar o caractere do programa
         try
         {
-            var dto = new CriarAquecimentoDTO(programaDto.TempoSegundos, programaDto.Potencia);
-            var aqu = _aquecimentoService.CriarAquecimentoComCaractere(dto, programaDto.CaractereProgresso[0]);
+            var criarDto = new Microondas.Application.DTOs.CriarAquecimentoDTO(programaDto.TempoSegundos, programaDto.Potencia);
+            var aqu = _aquecimentoService.CriarAquecimentoComCaractere(criarDto, programaDto.CaractereProgresso[0]);
             _aquecimentoAtual = _aquecimentoService.ObterAquecimento(aqu.Id);
             _aquecimentoPredefinido = true;
 
@@ -733,13 +736,141 @@ public class MicroondasUI
                 Console.WriteLine(_aquecimentoAtual?.StringInformativa);
             }
 
-            // Inicia automaticamente.
+            // inicia automaticamente (mantido comportamento atual)
             IniciarAquecimento();
             return true;
         }
         catch (Exception ex)
         {
             lock (_consoleLock) Console.WriteLine($"\nErro ao iniciar programa: {ex.Message}");
+            PauseComEspera();
+            return true;
+        }
+    }
+
+    private bool RegistrarProgramaCustomizado()
+    {
+        // Exibe informações úteis antes de solicitar dados ao usuário
+        lock (_consoleLock)
+        {
+            Console.WriteLine("\n=== REGISTRAR PROGRAMA CUSTOMIZADO ===\n");
+
+            var todos = _programaService.ListarTodos().ToList();
+
+            // Identificadores já em uso
+            var ids = todos.Any() ? string.Join(", ", todos.Select(p => p.Identificador)) : "(nenhum)";
+            Console.WriteLine($"Caracteres já em uso (identificadores): {ids}");
+
+            // Caractere de aquecimento indisponíveis (inclui '.' por ser reservado)
+            var charsIndisponiveis = todos
+                .Select(p => (p.CaractereProgresso ?? "."))
+                .Where(s => !string.IsNullOrEmpty(s))
+                .Select(s => s[0])
+                .Distinct()
+                .ToList();
+
+            if (!charsIndisponiveis.Contains('.'))
+                charsIndisponiveis.Insert(0, '.');
+
+            var charsStr = charsIndisponiveis.Any() ? string.Join(", ", charsIndisponiveis) : "(nenhum)";
+            Console.WriteLine($"Caractere(s) de aquecimento indisponíveis: {charsStr}\n");
+
+            Console.Write("Identificador (um caractere): ");
+        }
+
+        var id = (Console.ReadLine() ?? "").Trim().ToUpper();
+        if (string.IsNullOrEmpty(id) || id.Length != 1)
+        {
+            lock (_consoleLock) Console.WriteLine("\n❌ Identificador inválido.");
+            PauseComEspera();
+            return true;
+        }
+
+        lock (_consoleLock) Console.Write("Nome do programa: ");
+        var nome = (Console.ReadLine() ?? "").Trim();
+        if (string.IsNullOrEmpty(nome))
+        {
+            lock (_consoleLock) Console.WriteLine("\n❌ Nome obrigatório.");
+            PauseComEspera();
+            return true;
+        }
+
+        lock (_consoleLock) Console.Write("Alimento (ex: Pipoca, Leite): ");
+        var alimento = (Console.ReadLine() ?? "").Trim();
+
+        lock (_consoleLock)
+        {
+            Console.Write("Tempo (segundos): ");
+        }
+        if (!int.TryParse(Console.ReadLine(), out int tempoSegundos) || tempoSegundos < 1)
+        {
+            lock (_consoleLock) Console.WriteLine("\n❌ Tempo inválido.");
+            PauseComEspera();
+            return true;
+        }
+
+        lock (_consoleLock)
+        {
+            Console.Write("Potência (1-10): ");
+        }
+        if (!int.TryParse(Console.ReadLine(), out int potencia) || potencia < 1 || potencia > 10)
+        {
+            lock (_consoleLock) Console.WriteLine("\n❌ Potência inválida.");
+            PauseComEspera();
+            return true;
+        }
+
+        lock (_consoleLock)
+        {
+            Console.Write("Caractere de aquecimento (um caractere, diferente de '.'): ");
+        }
+        var caractInput = (Console.ReadLine() ?? "");
+        if (string.IsNullOrWhiteSpace(caractInput) || caractInput.Length != 1)
+        {
+            lock (_consoleLock) Console.WriteLine("\n❌ Caractere inválido.");
+            PauseComEspera();
+            return true;
+        }
+        var caract = caractInput[0];
+        if (caract == '.')
+        {
+            lock (_consoleLock) Console.WriteLine("\n❌ Caractere '.' é reservado.");
+            PauseComEspera();
+            return true;
+        }
+
+        // Verifica duplicidade do caractere de aquecimento antes de tentar criar (feedback imediato)
+        var indisponiveis = _programaService.ListarTodos()
+            .Select(p => p.CaractereProgresso)
+            .Where(s => !string.IsNullOrEmpty(s))
+            .Select(s => s[0])
+            .Distinct()
+            .ToList();
+        if (indisponiveis.Contains(caract))
+        {
+            lock (_consoleLock) Console.WriteLine($"\n❌ Caractere '{caract}' já em uso. Escolha outro.");
+            PauseComEspera();
+            return true;
+        }
+
+        lock (_consoleLock) Console.Write("Instruções (opcional): ");
+        var instrucoes = (Console.ReadLine() ?? "").Trim();
+
+        try
+        {
+            var dto = new CriarProgramaDTO(id, nome, alimento, tempoSegundos, potencia, caract.ToString(), instrucoes);
+            var programaDto = _programaService.CriarPrograma(dto);
+
+            lock (_consoleLock)
+            {
+                Console.WriteLine($"\n✅ Programa customizado '{programaDto.Nome}' criado com identificador [{programaDto.Identificador}]");
+            }
+            PauseComEspera();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            lock (_consoleLock) Console.WriteLine($"\n❌ Erro ao criar programa: {ex.Message}");
             PauseComEspera();
             return true;
         }
