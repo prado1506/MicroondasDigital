@@ -2,12 +2,12 @@
 
 public class Programa
 {
-    public string Identificador { get; private set; } // Caractere único: "X", "M", "B", "C", "J" ou customizado
-    public string Nome { get; private set; }
-    public string Alimento { get; private set; }
+    public string Identificador { get; private set; } = null!;
+    public string Nome { get; private set; } = null!;
+    public string Alimento { get; private set; } = null!;
     public TimeSpan Tempo { get; private set; }
-    public Potencia Potencia { get; private set; }
-    public string Instrucoes { get; private set; }
+    public Potencia Potencia { get; private set; } = null!;
+    public string Instrucoes { get; private set; } = null!;
     public bool EhCustomizado { get; private set; }
     public DateTime DataCriacao { get; private set; }
 
