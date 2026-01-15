@@ -36,13 +36,39 @@ public class Aquecimento
         return Estado switch
         {
             EstadoAquecimento.Parado => $"Microondas parado. Tempo: {FormatarTempo(TempoTotal)} | Potência: {Potencia}",
-            EstadoAquecimento.Aquecendo => $"Aquecendo... Tempo restante: {FormatarTempo(TempoRestante)} | Potência: {Potencia}",
+            EstadoAquecimento.Aquecendo => $"Aquecendo... Tempo restante: {FormatarTempo(TempoRestante)} | Potência: {Potencia}\n{GerarPontosProgresso()}",
             EstadoAquecimento.Pausado => $"Aquecimento pausado. Tempo restante: {FormatarTempo(TempoRestante)} | Potência: {Potencia}",
-            EstadoAquecimento.Concluido => $"Aquecimento concluído! Tempo total: {FormatarTempo(TempoTotal)}",
+            EstadoAquecimento.Concluido => MensagemFinal(),
             _ => "Estado desconhecido"
         };
     }
 
+    private string GerarPontosProgresso()
+    {
+        // Para cada segundo restante exibe um "grupo" de pontos do tamanho da potência.
+        // Ex.: 10s potência 1 -> ". . . . . . . . . ."
+        //      5s potência 3  -> "... ... ... ... ..."
+        int segundos = Math.Max(0, (int)Math.Ceiling(TempoRestante.TotalSeconds));
+        int grupo = Potencia.Valor;
+
+        if (segundos == 0)
+            return string.Empty;
+
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < segundos; i++)
+        {
+            sb.Append(new string('.', grupo));
+            if (i < segundos - 1)
+                sb.Append(' ');
+        }
+        return sb.ToString();
+    }
+
+    private string MensagemFinal()
+    {
+        // Mensagem final quando concluído
+        return $"Aquecimento concluído! Tempo total: {FormatarTempo(TempoTotal)}";
+    }
 
     public void Iniciar()
     {
@@ -118,9 +144,9 @@ public class Aquecimento
         StringInformativa = Estado switch
         {
             EstadoAquecimento.Parado => $"Microondas parado. Tempo: {FormatarTempo(TempoTotal)} | Potência: {Potencia}",
-            EstadoAquecimento.Aquecendo => $"Aquecendo... Tempo restante: {FormatarTempo(TempoRestante)} | Potência: {Potencia}",
+            EstadoAquecimento.Aquecendo => $"Aquecendo... Tempo restante: {FormatarTempo(TempoRestante)} | Potência: {Potencia}\n{GerarPontosProgresso()}",
             EstadoAquecimento.Pausado => $"Aquecimento pausado. Tempo restante: {FormatarTempo(TempoRestante)} | Potência: {Potencia}",
-            EstadoAquecimento.Concluido => $"Aquecimento concluído! Tempo total: {FormatarTempo(TempoTotal)}",
+            EstadoAquecimento.Concluido => MensagemFinal(),
             _ => "Estado desconhecido"
         };
     }

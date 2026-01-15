@@ -10,6 +10,7 @@ obj/
 *.user
 *.userosscache
 *.sln.docstates
+.github/copilot-instructions.md
 
 # Rider
 .idea/
