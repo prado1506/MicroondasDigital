@@ -34,12 +34,13 @@ public class AquecimentoService
         return MapearParaDTO(a);
     }
 
-    public AquecimentoDTO? AdicionarTempo(int id, int segundos)
+    // Agora AdicionarTempo sempre adiciona 30 segundos — regra do projeto
+    public AquecimentoDTO? AdicionarTempo(int id)
     {
         var a = _aquecimentos.FirstOrDefault(x => x.Id == id);
         if (a == null) throw new InvalidOperationException($"Aquecimento {id} não encontrado");
 
-        a.AdicionarTempo(TimeSpan.FromSeconds(segundos));
+        a.AdicionarTempo(TimeSpan.FromSeconds(30)); // adiciona 30s fixos
         return MapearParaDTO(a);
     }
 

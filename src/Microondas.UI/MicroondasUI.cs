@@ -13,6 +13,8 @@ public class MicroondasUI
     private AquecimentoDTO? _aquecimentoAtual;
     private CancellationTokenSource? _cts;
     private Thread? _threadSimulacao;
+    private readonly object _consoleLock = new(); // evita interleaving de escrita no console
+    private volatile bool _suspendStatusDisplay;
 
     public MicroondasUI()
     {
@@ -28,37 +30,49 @@ public class MicroondasUI
         bool continuar = true;
         while (continuar)
         {
+            _suspendStatusDisplay = true;
             ExibirMenuPrincipal();
             string opcao = Console.ReadLine() ?? "";
+            _suspendStatusDisplay = false;
+
             continuar = ProcessarOpcaoMenuPrincipal(opcao);
         }
 
-        Console.WriteLine("\nObrigado por usar o Micro-ondas Digital!");
-        Console.WriteLine("Pressione qualquer tecla para sair...");
+        lock (_consoleLock)
+        {
+            Console.WriteLine("\nObrigado por usar o Micro-ondas Digital!");
+            Console.WriteLine("Pressione qualquer tecla para sair...");
+        }
         Console.ReadKey();
     }
 
     private void ExibirBemVindo()
     {
-        Console.WriteLine("╔════════════════════════════════════╗");
-        Console.WriteLine("║ *** MICRO-ONDAS DIGITAL ***        ║");
-        Console.WriteLine("║ Bem-vindo ao Nível 1               ║");
-        Console.WriteLine("║ Aquecimento Básico com Validações  ║");
-        Console.WriteLine("╚════════════════════════════════════╝\n");
+        lock (_consoleLock)
+        {
+            Console.WriteLine("╔════════════════════════════════════╗");
+            Console.WriteLine("║ *** MICRO-ONDAS DIGITAL ***        ║");
+            Console.WriteLine("║ Bem-vindo ao Nível 1               ║");
+            Console.WriteLine("║ Aquecimento Básico com Validações  ║");
+            Console.WriteLine("╚════════════════════════════════════╝\n");
+        }
     }
 
     private void ExibirMenuPrincipal()
     {
-        Console.WriteLine("\n--- MENU PRINCIPAL ---");
-        Console.WriteLine("1. Iniciar Aquecimento Manual");
-        Console.WriteLine("2. Quick Start (30s - Potência 10)");
-        Console.WriteLine("3. Pausar Aquecimento");
-        Console.WriteLine("4. Retomar Aquecimento");
-        Console.WriteLine("5. Adicionar Tempo");
-        Console.WriteLine("6. Cancelar Aquecimento");
-        Console.WriteLine("7. Ver Status");
-        Console.WriteLine("0. Sair");
-        Console.Write("\nEscolha uma opção: ");
+        lock (_consoleLock)
+        {
+            Console.WriteLine("\n--- MENU PRINCIPAL ---");
+            Console.WriteLine("1. Iniciar Aquecimento Manual");
+            Console.WriteLine("2. Quick Start (30s - Potência 10)");
+            Console.WriteLine("3. Pausar Aquecimento");
+            Console.WriteLine("4. Retomar Aquecimento");
+            Console.WriteLine("5. Adicionar Tempo (+30s)");
+            Console.WriteLine("6. Cancelar Aquecimento");
+            Console.WriteLine("7. Ver Status");
+            Console.WriteLine("0. Sair");
+            Console.Write("\nEscolha uma opção: ");
+        }
     }
 
     private bool ProcessarOpcaoMenuPrincipal(string opcao)
@@ -84,34 +98,42 @@ public class MicroondasUI
 
     private bool IniciarAquecimentoManual(AquecimentoService _aquecimentoService)
     {
-        Console.WriteLine("=== INICIAR AQUECIMENTO MANUAL ===\n");
+        lock (_consoleLock)
+        {
+            Console.WriteLine("=== INICIAR AQUECIMENTO MANUAL ===\n");
+        }
 
         if (_aquecimentoAtual != null && _aquecimentoAtual.Estado == EstadoAquecimento.Aquecendo.ToString())
         {
-            Console.WriteLine("⚠️ Há um aquecimento em andamento. Cancelando...\n");
             _aquecimentoService.CancelarAquecimento(_aquecimentoAtual.Id);
             PararSimulacao();
             _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id);
         }
 
-        Console.WriteLine("Tempo de aquecimento (em segundos):");
-        Console.WriteLine("Mínimo: 1s | Máximo: 120s (2 minutos)");
-        Console.Write("Digite o tempo: ");
+        lock (_consoleLock)
+        {
+            Console.WriteLine("Tempo de aquecimento (em segundos):");
+            Console.WriteLine("Mínimo: 1s | Máximo: 120s (2 minutos)");
+            Console.Write("Digite o tempo: ");
+        }
+
         if (!int.TryParse(Console.ReadLine(), out int segundos))
         {
-            Console.WriteLine("❌ Entrada inválida! Digite um número inteiro.");
+            lock (_consoleLock) Console.WriteLine("❌ Entrada inválida! Digite um número inteiro.");
             PauseComEspera();
             return true;
         }
 
-        Console.WriteLine("\nPotência de aquecimento:");
-        Console.WriteLine("Mínimo: 1 | Máximo: 10");
-        Console.Write("Digite a potência: ");
+        lock (_consoleLock)
+        {
+            Console.WriteLine("\nPotência de aquecimento:");
+            Console.WriteLine("Mínimo: 1 | Máximo: 10");
+            Console.Write("Digite a potência: ");
+        }
         if (!int.TryParse(Console.ReadLine(), out int potencia))
         {
-            Console.WriteLine("❌ Entrada inválida! Digite um número inteiro.");
-            PauseComEspera();
-            return true;
+            lock (_consoleLock) Console.WriteLine("❌ Entrada não informada, potencia padrão: 10.");
+            potencia = 10;
         }
 
         try
@@ -123,7 +145,7 @@ public class MicroondasUI
 
             if (_aquecimentoAtual == null)
             {
-                Console.WriteLine("❌ Falha ao recuperar aquecimento criado.");
+                lock (_consoleLock) Console.WriteLine("❌ Falha ao recuperar aquecimento criado.");
                 PauseComEspera();
                 return true;
             }
@@ -134,7 +156,7 @@ public class MicroondasUI
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"❌ Erro: {ex.Message}");
+            lock (_consoleLock) Console.WriteLine($"❌ Erro: {ex.Message}");
             PauseComEspera();
             return true;
         }
@@ -142,15 +164,17 @@ public class MicroondasUI
 
     private bool QuickStart()
     {
-        Console.Clear();
-        Console.WriteLine("=== QUICK START ===\n");
-        Console.WriteLine("Configuração: 30 segundos | Potência 10");
-        Console.WriteLine("Pressione ENTER para iniciar...");
+        lock (_consoleLock)
+        {
+            Console.Clear();
+            Console.WriteLine("=== QUICK START ===\n");
+            Console.WriteLine("Configuração: 30 segundos | Potência 10");
+            Console.WriteLine("Pressione ENTER para iniciar...");
+        }
         Console.ReadLine();
 
         if (_aquecimentoAtual != null && _aquecimentoAtual.Estado == EstadoAquecimento.Aquecendo.ToString())
         {
-            Console.WriteLine("⚠️ Cancelando aquecimento anterior...\n");
             _aquecimentoService.CancelarAquecimento(_aquecimentoAtual.Id);
             PararSimulacao();
             _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id);
@@ -163,14 +187,18 @@ public class MicroondasUI
             _aquecimentoAtual = _aquecimentoService.ObterAquecimento(aquecimentoDto.Id);
 
             if (_aquecimentoAtual == null)
-                throw new InvalidOperationException("Falha ao recuperar aquecimento criado");
+            {
+                lock (_consoleLock) Console.WriteLine("Falha ao recuperar aquecimento criado");
+                PauseComEspera();
+                return true;
+            }
 
             IniciarAquecimento();
             return true;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"❌ Erro: {ex.Message}");
+            lock (_consoleLock) Console.WriteLine($"❌ Erro: {ex.Message}");
             PauseComEspera();
             return true;
         }
@@ -180,7 +208,7 @@ public class MicroondasUI
     {
         if (_aquecimentoAtual == null)
         {
-            Console.WriteLine("❌ Nenhum aquecimento disponível!");
+            lock (_consoleLock) Console.WriteLine("❌ Nenhum aquecimento disponível!");
             return;
         }
 
@@ -189,11 +217,14 @@ public class MicroondasUI
             _aquecimentoService.IniciarAquecimento(_aquecimentoAtual.Id);
             _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id);
 
-            Console.WriteLine("\n✅ Aquecimento iniciado!");
-            if (_aquecimentoAtual != null)
-                Console.WriteLine(_aquecimentoAtual.StringInformativa);
-            else
-                Console.WriteLine("Informação do aquecimento indisponível.");
+            lock (_consoleLock)
+            {
+                Console.WriteLine("\n✅ Aquecimento iniciado!");
+                if (_aquecimentoAtual != null)
+                    Console.WriteLine(_aquecimentoAtual.StringInformativa);
+                else
+                    Console.WriteLine("Informação do aquecimento indisponível.");
+            }
 
             _cts = new CancellationTokenSource();
             _threadSimulacao = new Thread(() => SimularAquecimento(_cts.Token))
@@ -202,12 +233,12 @@ public class MicroondasUI
             };
             _threadSimulacao.Start();
 
-            Console.WriteLine("\nDigite 'P' para pausar, 'C' para cancelar ou aguarde a conclusão...");
+            lock (_consoleLock) Console.WriteLine("\nDigite 'P' para pausar, 'C' para cancelar ou aguarde a conclusão...");
             AguardarEntrada();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"❌ Erro ao iniciar: {ex.Message}");
+            lock (_consoleLock) Console.WriteLine($"❌ Erro ao iniciar: {ex.Message}");
             PauseComEspera();
         }
     }
@@ -221,12 +252,22 @@ public class MicroondasUI
             Thread.Sleep(1000);
             _aquecimentoAtual = _aquecimentoService.SimularPassagemTempo(_aquecimentoAtual.Id);
 
-            ExibirTelaAquecimento();
+            // Não escreve o status enquanto o menu/entrada estiver ativa
+            if (_suspendStatusDisplay)
+                continue;
+
+            lock (_consoleLock)
+            {
+                ExibirTelaAquecimento();
+            }
 
             if (_aquecimentoAtual != null && _aquecimentoAtual.Estado == EstadoAquecimento.Concluido.ToString())
             {
-                Console.WriteLine("\n✅ *** AQUECIMENTO CONCLUÍDO! ***");
-                Console.WriteLine("🔔 Beep! Beep! Beep!");
+                lock (_consoleLock)
+                {
+                    Console.WriteLine("\n✅ *** AQUECIMENTO CONCLUÍDO! ***");
+                    Console.WriteLine("🔔 Beep! Beep! Beep!");
+                }
                 Thread.Sleep(2000);
                 break;
             }
@@ -235,6 +276,7 @@ public class MicroondasUI
 
     private void ExibirTelaAquecimento()
     {
+        // Exibir apenas a seção de status — assume que quem chamou já adquiriu _consoleLock quando necessário
         Console.WriteLine("=== AQUECIMENTO EM ANDAMENTO ===\n");
 
         if (_aquecimentoAtual == null)
@@ -255,22 +297,40 @@ public class MicroondasUI
                 var tecla = Console.ReadKey(true).KeyChar;
                 if (char.ToUpper(tecla) == 'P')
                 {
+                    // garanta que nenhuma nova linha de status será exibida enquanto processamos a pausa
+                    _suspendStatusDisplay = true;
+
                     _aquecimentoService.PausarAquecimento(_aquecimentoAtual.Id);
-                    _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id);
+
+                    // sinaliza a thread de simulação e aguarda ela terminar para evitar prints concorrentes
                     _cts?.Cancel();
-                    Console.WriteLine("\n⏸️ Aquecimento pausado!");
-                    if (_aquecimentoAtual != null)
-                        Console.WriteLine(_aquecimentoAtual.StringInformativa);
-                    else
-                        Console.WriteLine("Informação do aquecimento indisponível.");
+                    PararSimulacao(); // agora espera indefinidamente até a thread terminar
+
+                    lock (_consoleLock)
+                    {
+                        Console.WriteLine("\n⏸️ Aquecimento pausado!");
+                        if (_aquecimentoAtual != null)
+                            Console.WriteLine(_aquecimentoAtual.StringInformativa);
+                        else
+                            Console.WriteLine("Informação do aquecimento indisponível.");
+                    }
+
                     break;
                 }
                 else if (char.ToUpper(tecla) == 'C')
                 {
+                    _suspendStatusDisplay = true;
+
                     _aquecimentoService.CancelarAquecimento(_aquecimentoAtual.Id);
-                    _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id);
+
                     _cts?.Cancel();
-                    Console.WriteLine("\n❌ Aquecimento cancelado!");
+                    PararSimulacao();
+
+                    lock (_consoleLock)
+                    {
+                        Console.WriteLine("\n❌ Aquecimento cancelado!");
+                    }
+
                     break;
                 }
             }
@@ -283,29 +343,35 @@ public class MicroondasUI
     {
         if (_aquecimentoAtual == null)
         {
-            Console.WriteLine("\n❌ Nenhum aquecimento em andamento!");
+            lock (_consoleLock) Console.WriteLine("\n❌ Nenhum aquecimento em andamento!");
             PauseComEspera();
             return true;
         }
 
         try
         {
+            _suspendStatusDisplay = true;
+
             _aquecimentoService.PausarAquecimento(_aquecimentoAtual.Id);
-            _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id);
             _cts?.Cancel();
             PararSimulacao();
+            _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id);
 
-            Console.WriteLine("\n⏸️ Aquecimento pausado!");
-            if (_aquecimentoAtual != null)
-                Console.WriteLine(_aquecimentoAtual.StringInformativa);
-            else
-                Console.WriteLine("Informação do aquecimento indisponível.");
+            lock (_consoleLock)
+            {
+                Console.WriteLine("\n⏸️ Aquecimento pausado!");
+                if (_aquecimentoAtual != null)
+                    Console.WriteLine(_aquecimentoAtual.StringInformativa);
+                else
+                    Console.WriteLine("Informação do aquecimento indisponível.");
+            }
+
             PauseComEspera();
             return true;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"\n❌ Erro: {ex.Message}");
+            lock (_consoleLock) Console.WriteLine($"\n❌ Erro: {ex.Message}");
             PauseComEspera();
             return true;
         }
@@ -315,7 +381,7 @@ public class MicroondasUI
     {
         if (_aquecimentoAtual == null)
         {
-            Console.WriteLine("\n❌ Nenhum aquecimento pausado!");
+            lock (_consoleLock) Console.WriteLine("\n❌ Nenhum aquecimento pausado!");
             PauseComEspera();
             return true;
         }
@@ -325,12 +391,16 @@ public class MicroondasUI
             _aquecimentoService.RetomarAquecimento(_aquecimentoAtual.Id);
             _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id);
 
-            Console.WriteLine("\n▶️ Aquecimento retomado!");
-            if (_aquecimentoAtual != null)
-                Console.WriteLine(_aquecimentoAtual.StringInformativa);
-            else
-                Console.WriteLine("Informação do aquecimento indisponível.");
+            lock (_consoleLock)
+            {
+                Console.WriteLine("\n▶️ Aquecimento retomado!");
+                if (_aquecimentoAtual != null)
+                    Console.WriteLine(_aquecimentoAtual.StringInformativa);
+                else
+                    Console.WriteLine("Informação do aquecimento indisponível.");
+            }
 
+            _suspendStatusDisplay = false;
             _cts = new CancellationTokenSource();
             _threadSimulacao = new Thread(() => SimularAquecimento(_cts.Token))
             {
@@ -343,7 +413,7 @@ public class MicroondasUI
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"\n❌ Erro: {ex.Message}");
+            lock (_consoleLock) Console.WriteLine($"\n❌ Erro: {ex.Message}");
             PauseComEspera();
             return true;
         }
@@ -357,7 +427,8 @@ public class MicroondasUI
 
             if (_threadSimulacao != null && _threadSimulacao.IsAlive)
             {
-                _threadSimulacao.Join(500);
+                // aguarda até a thread terminar — evita prints residuais após pausa/cancelamento
+                _threadSimulacao.Join();
             }
         }
         finally
@@ -371,25 +442,31 @@ public class MicroondasUI
     {
         if (_aquecimentoAtual == null)
         {
-            Console.WriteLine("\n❌ Nenhum aquecimento em andamento!");
+            lock (_consoleLock) Console.WriteLine("\n❌ Nenhum aquecimento em andamento!");
             PauseComEspera();
             return true;
         }
 
         try
         {
-            _aquecimentoService.CancelarAquecimento(_aquecimentoAtual.Id);
-            _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id);
-            PararSimulacao();
+            _suspendStatusDisplay = true;
 
-            Console.WriteLine("\n❌ Aquecimento cancelado!");
-            PauseComEspera();
-            Console.Clear();
+            _aquecimentoService.CancelarAquecimento(_aquecimentoAtual.Id);
+            _cts?.Cancel();
+            PararSimulacao();
+            _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id);
+
+            lock (_consoleLock)
+            {
+                Console.WriteLine("\n❌ Aquecimento cancelado!");
+                PauseComEspera();
+                Console.Clear();
+            }
             return true;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"\n❌ Erro ao cancelar: {ex.Message}");
+            lock (_consoleLock) Console.WriteLine($"\n❌ Erro ao cancelar: {ex.Message}");
             PauseComEspera();
             return true;
         }
@@ -397,18 +474,21 @@ public class MicroondasUI
 
     private bool VerStatus()
     {
-        Console.WriteLine("=== STATUS DO AQUECIMENTO ===\n");
-
-        if (_aquecimentoAtual == null)
+        lock (_consoleLock)
         {
-            Console.WriteLine("Nenhum aquecimento configurado.");
-            PauseComEspera();
-            return true;
-        }
+            Console.WriteLine("=== STATUS DO AQUECIMENTO ===\n");
 
-        Console.WriteLine($"ID: {_aquecimentoAtual.Id}");
-        Console.WriteLine($"Estado: {_aquecimentoAtual.Estado}");
-        Console.WriteLine(_aquecimentoAtual.StringInformativa);
+            if (_aquecimentoAtual == null)
+            {
+                Console.WriteLine("Nenhum aquecimento configurado.");
+                PauseComEspera();
+                return true;
+            }
+
+            Console.WriteLine($"ID: {_aquecimentoAtual.Id}");
+            Console.WriteLine($"Estado: {_aquecimentoAtual.Estado}");
+            Console.WriteLine(_aquecimentoAtual.StringInformativa);
+        }
 
         PauseComEspera();
         return true;
@@ -418,38 +498,32 @@ public class MicroondasUI
     {
         if (_aquecimentoAtual == null)
         {
-            Console.WriteLine("\n❌ Nenhum aquecimento para adicionar tempo!");
-            PauseComEspera();
-            return true;
-        }
-
-        Console.WriteLine("\n=== ADICIONAR TEMPO ===");
-        Console.Write("Informe quantos segundos deseja adicionar: ");
-
-        if (!int.TryParse(Console.ReadLine(), out int segundosAdicionais))
-        {
-            Console.WriteLine("❌ Entrada inválida! Digite um número inteiro.");
+            lock (_consoleLock) Console.WriteLine("\n❌ Nenhum aquecimento para adicionar tempo!");
             PauseComEspera();
             return true;
         }
 
         try
         {
-            _aquecimentoService.AdicionarTempo(_aquecimentoAtual.Id, segundosAdicionais);
+            _aquecimentoService.AdicionarTempo(_aquecimentoAtual.Id);
             _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id);
 
-            Console.WriteLine("\n✅ Tempo adicionado com sucesso!");
-            if (_aquecimentoAtual != null)
+            lock (_consoleLock)
             {
-                Console.WriteLine(_aquecimentoAtual.StringInformativa);
+                Console.WriteLine("\n✅ 30 segundos adicionados com sucesso!");
+                if (_aquecimentoAtual != null)
+                {
+                    Console.WriteLine(_aquecimentoAtual.StringInformativa);
+                }
             }
+
             PauseComEspera();
             RetomarAquecimento();
             return true;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"\n❌ Erro ao adicionar tempo: {ex.Message}");
+            lock (_consoleLock) Console.WriteLine($"\n❌ Erro ao adicionar tempo: {ex.Message}");
             PauseComEspera();
             return true;
         }
@@ -457,14 +531,17 @@ public class MicroondasUI
 
     private bool ExibirOpcaoInvalida()
     {
-        Console.WriteLine("\n❌ Opção inválida! Tente novamente.");
+        lock (_consoleLock) Console.WriteLine("\n❌ Opção inválida! Tente novamente.");
         PauseComEspera();
         return true;
     }
 
     private void PauseComEspera()
     {
-        Console.WriteLine("\nPressione qualquer tecla para Retornar/Continuar...");
+        lock (_consoleLock)
+        {
+            Console.WriteLine("\nPressione qualquer tecla para Retornar/Continuar...");
+        }
         Console.ReadKey(true);
     }
 }

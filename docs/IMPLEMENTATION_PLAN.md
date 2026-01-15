@@ -1,268 +1,91 @@
-# Plano de Implementação - Micro-ondas Digital
+The assessment is to implement a digital microwave as a web program using object orientation and .NET Framework 4.0+, separating UI and business layers.
+​
 
-## Fase 1: Setup e Estrutura Base
+There are four difficulty levels, and at least level 3 requirements must be implemented; web research is allowed, but all code will be evaluated regardless of origin.
+​
 
-### Tarefas Concluídas
-- [✓] README.md documentado
-- [✓] .gitignore criado
-- [✓] Scripts de setup (PowerShell)
-- [✓] Guia de setup (SETUP.md)
+General mandatory requirements: use OOP, separate layers, focus on behavior rather than UI design, and ensure the program behaves according to each level’s rules.
+​
 
-### Próximas Tarefas
-- [ ] Executar setup.ps1 para criar estrutura de projetos
-- [ ] Adicionar referências entre projetos
+Desirable requirements: apply SOLID, design patterns, good coding practices, proper encapsulation, documentation when needed, and unit tests for the business layer.
+​
 
-## Fase 2: Nível 1 - Aquecimento Básico
+Level 1 (basic behavior)
+Create an interface to input time and power, via on-screen keypad and/or keyboard; tech stack for UI is up to the developer, but must integrate with C# backend (desktop or web).
+​
 
-### Domain Layer (Microondas.Domain)
+Implement a method to start heating with configurable time and power: time between 1 second and 2 minutes; power from 1 to 10 with default 10 if omitted; times between 60 and 99 seconds must be converted and displayed as minutes:seconds (e.g., 90 → 1:30).
+​
 
-#### Entidades
-```csharp
-// Aquecimento.cs
-public class Aquecimento
-{
-    public int Id { get; private set; }
-    public TimeSpan TempoTotal { get; private set; }
-    public TimeSpan TempoRestante { get; private set; }
-    public int Potencia { get; private set; }
-    public EstadoAquecimento Estado { get; private set; }
-    public string StringInformativa { get; private set; }
-    
-    // Métodos
-    public void Iniciar(TimeSpan tempo, int potencia)
-    public void Pausar()
-    public void Retomar()
-    public void Cancelar()
-    public void AdicionarTempo(TimeSpan tempo)
-    public void AtualizarStringInformativa()
-}
+Implement validation: reject times outside the allowed range, reject power outside 0–10, and auto-fill power 10 when not informed.
+​
 
-public enum EstadoAquecimento
-{
-    Parado,
-    Aquecendo,
-    Pausado,
-    Concluido
-}
-```
+Implement “quick start”: pressing start with no time/power starts 30 seconds at power 10. Pressing start again during heating adds 30 seconds to the remaining time.
+​
 
-#### Agregados e Value Objects
-```csharp
-// Potencia.cs (Value Object)
-public class Potencia
-{
-    public int Valor { get; private set; }
-    public const int Minimo = 1;
-    public const int Maximo = 10;
-    public const int Padrao = 10;
-    
-    public Potencia(int valor)
-    {
-        if (valor < Minimo || valor > Maximo)
-            throw new ArgumentException($"Potência deve estar entre {Minimo} e {Maximo}");
-        Valor = valor;
-    }
-}
+During heating, display an informative string that evolves over time: character “.” repeated according to time and power (e.g., 10s at power 1 → 10 dots with spaces; 5s at power 3 → 5 groups of three dots). At the end append “Aquecimento concluído” (“Heating completed”).
+​
 
-// Tempo.cs (Value Object)
-public class Tempo
-{
-    public TimeSpan Duracao { get; private set; }
-    public static TimeSpan Minimo => TimeSpan.FromSeconds(1);
-    public static TimeSpan Maximo => TimeSpan.FromSeconds(120);
-    public static TimeSpan QuickStart => TimeSpan.FromSeconds(30);
-    
-    public Tempo(TimeSpan duracao)
-    {
-        if (duracao < Minimo || duracao > Maximo)
-            throw new ArgumentException($"Tempo deve estar entre 1s e 2min");
-        Duracao = duracao;
-    }
-}
-```
+Implement a single button for pause/cancel:
 
-### Application Layer (Microondas.Application)
+If heating is running, it pauses.
 
-#### Serviços de Aplicação
-```csharp
-// IniciarAquecimentoService.cs
-public class IniciarAquecimentoService
-{
-    private readonly IAquecimentoRepository _repository;
-    
-    public IniciarAquecimentoService(IAquecimentoRepository repository)
-    {
-        _repository = repository;
-    }
-    
-    public async Task<Aquecimento> Executar(IniciarAquecimentoCommand comando)
-    {
-        var tempo = new Tempo(TimeSpan.FromSeconds(comando.TempoSegundos));
-        var potencia = new Potencia(comando.Potencia ?? Potencia.Padrao);
-        
-        var aquecimento = new Aquecimento(tempo, potencia);
-        aquecimento.Iniciar();
-        
-        await _repository.AdicionarAsync(aquecimento);
-        return aquecimento;
-    }
-}
-```
+If paused and pressed again, it cancels and clears state.
 
-#### Commands e DTOs
-```csharp
-// IniciarAquecimentoCommand.cs
-public class IniciarAquecimentoCommand
-{
-    public int TempoSegundos { get; set; }
-    public int? Potencia { get; set; }
-}
+If pressed before start, it clears time and power fields.
+​
 
-// AquecimentoDTO.cs
-public class AquecimentoDTO
-{
-    public int Id { get; set; }
-    public string TempoRestante { get; set; }
-    public int Potencia { get; set; }
-    public string Estado { get; set; }
-    public string StringInformativa { get; set; }
-}
-```
+Level 2 (predefined programs)
+Add 5 predefined heating programs with fixed name, food, time, power, heating string character, and optional usage instructions.
+​
 
-### Infrastructure Layer (Microondas.Infrastructure)
+Each program must use a different heating character, not “.”, and predefined programs cannot be changed or deleted.
+​
 
-#### Repositórios
-```csharp
-// AquecimentoRepository.cs
-public class AquecimentoRepository : IAquecimentoRepository
-{
-    private List<Aquecimento> _aquecimentos = new();
-    private Aquecimento _aquecimentoAtual;
-    
-    public async Task<Aquecimento> ObterAtualAsync()
-    {
-        return await Task.FromResult(_aquecimentoAtual);
-    }
-    
-    public async Task AdicionarAsync(Aquecimento aquecimento)
-    {
-        _aquecimentos.Add(aquecimento);
-        _aquecimentoAtual = aquecimento;
-        await Task.CompletedTask;
-    }
-}
-```
+Selecting a program auto-fills time and power and locks those fields.
+​
 
-### UI Layer (Microondas.UI)
+For predefined programs, adding extra time is not allowed, but pause and cancel actions still work.
+​
 
-#### Interface Console
-```csharp
-// MicroondasUI.cs
-public class MicroondasUI
-{
-    private readonly IniciarAquecimentoService _service;
-    
-    public void Exibir()
-    {
-        Console.WriteLine("=== MICRO-ONDAS DIGITAL ===");
-        Console.WriteLine("1. Informar tempo e potência");
-        Console.WriteLine("2. Quick Start (30s - Pot 10)");
-        Console.WriteLine("3. Sair");
-        
-        var opcao = Console.ReadLine();
-        // Processar opcoes
-    }
-}
-```
+Programs described:
 
-### Tests (Microondas.Tests)
+Popcorn: 3 min, power 7, with instructions to stop when popping slows.
 
-```csharp
-public class AquecimentoTests
-{
-    [Fact]
-    public void DeveIniciarAquecimento()
-    {
-        // Arrange
-        var tempo = new Tempo(TimeSpan.FromSeconds(30));
-        var potencia = new Potencia(5);
-        
-        // Act
-        var aquecimento = new Aquecimento(tempo, potencia);
-        aquecimento.Iniciar();
-        
-        // Assert
-        Assert.Equal(EstadoAquecimento.Aquecendo, aquecimento.Estado);
-    }
-    
-    [Fact]
-    public void DeveValidarTempoMinimo()
-    {
-        // Act & Assert
-        Assert.Throws<ArgumentException>(() => new Tempo(TimeSpan.FromMilliseconds(500)));
-    }
-}
-```
+Milk: 5 min, power 5, with safety warning for liquids.
 
-## Fase 3: Nível 2 - Programas Pré-definidos
+Beef: 14 min, power 4, with instruction to flip halfway.
 
-### Entidades
-```csharp
-public class ProgramaAquecimento
-{
-    public int Id { get; set; }
-    public string Nome { get; set; }
-    public string Alimento { get; set; }
-    public TimeSpan Tempo { get; set; }
-    public Potencia Potencia { get; set; }
-    public char CharacterAquecimento { get; set; }
-    public string Instrucoes { get; set; }
-    public bool EhPreDefinido { get; set; }
-}
-```
+Chicken: 8 min, power 7, flip halfway.
 
-### Programas Iniciais
-1. Pipoca: 3min, Pot 7, '#', "Observar estouros..."
-2. Leite: 5min, Pot 5, '+', "Cuidado com líquidos..."
-3. Carne Boi: 14min, Pot 4, '@', "Vire na metade..."
-4. Frango: 8min, Pot 7, '*', "Vire na metade..."
-5. Feijão: 8min, Pot 9, '&', "Deixe destampado..."
+Beans: 8 min, power 9, uncovered, with caution for plastic containers.
+​
 
-## Fase 4: Nível 3 - Programas Customizados
+Level 3 (custom programs)
+Allow registration of custom programs with required fields: program name, food, power, heating character, and time; instructions are optional.
+​
 
-- [ ] Salvar programas em JSON
-- [ ] Validar caracteres únicos
-- [ ] Diferenciar visualmente customizados
+The heating character must be unique and cannot match any predefined program’s character nor the default “.”.
+​
 
-## Fase 5: Nível 4 - Web API
+Custom programs are listed together with predefined ones but shown in italic to differentiate.
+​
 
-- [ ] Controllers REST
-- [ ] Autenticação Bearer Token
-- [ ] Entity Framework Core
-- [ ] SQL Server
-- [ ] Logging e tratamento de erros
+Persistence for custom programs may be JSON file or SQL Server.
+​
 
-## Melhores Práticas a Seguir
+Level 4 (Web API and robustness)
+Expose all business operations (heating, program CRUD/usage) via a Web API with Bearer token authentication.
+​
 
-### SOLID
-- **S**ingle Responsibility: Cada classe tem uma responsábilidade
-- **O**pen/Closed: Aberto para extensão, fechado para modificação
-- **L**iskov Substitution: Interfaces bem definidas
-- **I**nterface Segregation: Interfaces pequenas e específicas
-- **D**ependency Inversion: Injetar depências
+The app must show authentication status, and if auth fails, no functions can be used.
+​
 
-### Design Patterns
-- Repository Pattern
-- Factory Pattern
-- Observer Pattern (atualização de estado)
-- Strategy Pattern (diferentes aquecimentos)
+Credentials are configured in a dedicated screen; password field is masked; password must be stored hashed with SHA1 (256 bits as specified).
+​
 
-## Checklist de Verificação
+If using a database, the connection string must be encrypted, and documentation must show how to decrypt it.
+​
 
-### Antes de Submeter
-- [ ] Código compila sem erros
-- [ ] Todos os testes passam
-- [ ] Sem warnings no build
-- [ ] Código documentado (XML comments)
-- [ ] Commits com mensagens descritivas
-- [ ] README atualizado com instruções de execução
+Implement exception handling with a standard response format, a specific business-rule exception type, and logging of unhandled exceptions (including inner exception and stack trace) to text file or database.
+​
