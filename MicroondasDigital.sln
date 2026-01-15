@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.0.31903.59
+# Visual Studio Version 18
+VisualStudioVersion = 18.2.11408.102 d18.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{6C08C6C5-86EF-400B-BDCC-F026C0F3B6EB}"
 EndProject
@@ -23,9 +23,6 @@ Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
-	EndGlobalSection
-	GlobalSection(SolutionProperties) = preSolution
-		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{05E52AB9-1117-48CA-9C8F-F4C4C50426B7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
@@ -52,6 +49,9 @@ Global
 		{34322431-49CF-47AB-B40B-B6D75F713ED6}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{34322431-49CF-47AB-B40B-B6D75F713ED6}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{34322431-49CF-47AB-B40B-B6D75F713ED6}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{05E52AB9-1117-48CA-9C8F-F4C4C50426B7} = {6C08C6C5-86EF-400B-BDCC-F026C0F3B6EB}
