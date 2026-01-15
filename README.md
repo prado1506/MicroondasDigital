@@ -5,7 +5,7 @@ Sistema de micro-ondas digital desenvolvido em .NET com arquitetura em camadas, 
 
 ## Status do Projeto
 - [x] Nível 1: Aquecimento básico com validações
-- [ ] Nível 2: Programas pré-definidos
+- [x] Nível 2: Programas pré-definidos
 - [ ] Nível 3: Cadastro de programas customizados
 - [ ] Nível 4: Web API com autenticação
 
@@ -128,4 +128,5 @@ Data: Janeiro 2026
 
 ## Aviso
 Este projeto é fornecido como avaliação Pessoal.
+
 
