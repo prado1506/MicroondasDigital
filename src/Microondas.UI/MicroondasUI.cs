@@ -20,6 +20,8 @@ public class MicroondasUI
     private int? _ultimoTempoDigitado;
     private int? _ultimaPotenciaDigitada;
 
+    private bool _aquecimentoPredefinido; // true se o aquecimento atual foi criado a partir de programa pré-definido
+
     public MicroondasUI()
     {
         var programaRepository = new ProgramaRepository();
@@ -69,24 +71,74 @@ public class MicroondasUI
             Console.WriteLine("╚════════════════════════════════════╝\n");
         }
     }
+
     private void ExibirMenuPrincipal()
     {
+        // Se há um aquecimento em andamento ou pausado, exibir um menu restrito
+        var emAndamento = _aquecimentoAtual != null &&
+                          (_aquecimentoAtual.Estado == EstadoAquecimento.Aquecendo.ToString()
+                           || _aquecimentoAtual.Estado == EstadoAquecimento.Pausado.ToString());
+
         lock (_consoleLock)
         {
-            Console.WriteLine("\n--- MENU PRINCIPAL ---");
-            Console.WriteLine("1. Iniciar Aquecimento Manual");
-            Console.WriteLine("2. Quick Start (30s - Potência 10)");
-            Console.WriteLine("3. Retomar Aquecimento");
-            Console.WriteLine("4. Adicionar Tempo (+30s)");
-            Console.WriteLine("5. Ver Status");
-            Console.WriteLine("0. Sair");
-            Console.WriteLine("P. Pausar/Cancelar");
-            Console.Write("\nEscolha uma opção: ");
+            if (emAndamento)
+            {
+                Console.WriteLine("\n--- MENU (Aquecimento em andamento) ---");
+                Console.WriteLine("3. Retomar Aquecimento");
+                // Exibir opção de adicionar tempo apenas se o aquecimento atual permite (não predefinido)
+                if (_aquecimentoPredefinido)
+                    Console.WriteLine("4. Adicionar Tempo (+30s)  (NÃO PERMITIDO para programa pré-definido)");
+                else
+                    Console.WriteLine("4. Adicionar Tempo (+30s)");
+                Console.WriteLine("5. Ver Status");
+                Console.WriteLine("0. Sair");
+                Console.WriteLine("P. Pausar/Cancelar");
+                Console.Write("\nEscolha uma opção: ");
+            }
+            else
+            {
+                Console.WriteLine("\n--- MENU PRINCIPAL ---");
+                Console.WriteLine("1. Iniciar Aquecimento Manual");
+                Console.WriteLine("2. Quick Start (30s - Potência 10)");
+                Console.WriteLine("3. Retomar Aquecimento");
+                Console.WriteLine("4. Adicionar Tempo (+30s)");
+                Console.WriteLine("5. Ver Status");
+                Console.WriteLine("6. Selecionar Programa Pré-Definido");
+                Console.WriteLine("0. Sair");
+                Console.WriteLine("P. Pausar/Cancelar");
+                Console.Write("\nEscolha uma opção: ");
+            }
         }
     }
 
-    private bool ProcessarOpcaoMenuPrincipal(string opcao)
+    private bool ProcessarOpcaoMenuPrincipal(string? opcao)
     {
+        // trata null ou vazio como inválido
+        if (string.IsNullOrWhiteSpace(opcao))
+            return ExibirOpcaoInvalida();
+
+        var emAndamento = _aquecimentoAtual != null &&
+                          (_aquecimentoAtual.Estado == EstadoAquecimento.Aquecendo.ToString()
+                           || _aquecimentoAtual.Estado == EstadoAquecimento.Pausado.ToString());
+
+        if (emAndamento)
+        {
+            // Menu restrito quando há aquecimento em andamento/pausado
+            return opcao switch
+            {
+                "3" => RetomarAquecimento(),
+                "4" => // AdicionarTempo só permitido quando não for predefinido
+                    _aquecimentoPredefinido
+                        ? ExibirMensagemTemporaria("\n❌ Não é permitido adicionar tempo a aquecimentos iniciados por programa pré-definido.")
+                        : AdicionarTempo(),
+                "5" => VerStatus(),
+                "0" => false,
+                "p" or "P" => BotaoP(),
+                _ => ExibirOpcaoInvalida()
+            };
+        }
+
+        // Menu normal
         return opcao switch
         {
             "1" => IniciarAquecimentoManual(Get_aquecimentoService()),
@@ -94,10 +146,22 @@ public class MicroondasUI
             "3" => RetomarAquecimento(),
             "4" => AdicionarTempo(),
             "5" => VerStatus(),
+            "6" => SelecionarProgramaPredefinido(),
             "0" => false,
-            "p" => BotaoP(),
+            "p" or "P" => BotaoP(),
             _ => ExibirOpcaoInvalida()
         };
+    }
+
+    // Helper para mostrar mensagem simples dentro do fluxo do menu restrito
+    private bool ExibirMensagemTemporaria(string mensagem)
+    {
+        lock (_consoleLock)
+        {
+            Console.WriteLine(mensagem);
+        }
+        PauseComEspera();
+        return true;
     }
 
     private AquecimentoService Get_aquecimentoService()
@@ -163,6 +227,7 @@ public class MicroondasUI
                 return true;
             }
 
+            _aquecimentoPredefinido = false; // garantido aquecimento manual
             IniciarAquecimento();
             return true;
 
@@ -192,6 +257,7 @@ public class MicroondasUI
 
         if (_aquecimentoAtual != null && _aquecimentoAtual.Estado == EstadoAquecimento.Aquecendo.ToString())
         {
+            // se já estava aquecendo, não iniciar outro -- cancelar primeiro
             _aquecimentoService.CancelarAquecimento(_aquecimentoAtual.Id);
             PararSimulacao();
             _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id);
@@ -210,6 +276,7 @@ public class MicroondasUI
                 return true;
             }
 
+            _aquecimentoPredefinido = false; // QuickStart é considerado manual aqui
             IniciarAquecimento();
             return true;
         }
@@ -237,7 +304,7 @@ public class MicroondasUI
             lock (_consoleLock)
             {
                 Console.WriteLine("\n✅ Aquecimento iniciado!");
-                lock (_consoleLock) Console.WriteLine("\nDigite 'P' para pausar/cancelar, 'C' para cancelar diretamente ou aguarde a conclusão...");
+                Console.WriteLine("\nDigite 'P' para pausar/cancelar ou aguarde a conclusão...");
                 if (_aquecimentoAtual != null)
                     Console.WriteLine(_aquecimentoAtual.StringInformativa);
                 else
@@ -331,26 +398,6 @@ public class MicroondasUI
                     _suspendStatusDisplay = false;
                     break;
                 }
-                else if (char.ToUpper(tecla) == 'C')
-                {
-                    // cancelar diretamente durante aquecimento
-                    _suspendStatusDisplay = true;
-                    _aquecimentoService.CancelarAquecimento(_aquecimentoAtual.Id);
-                    _cts?.Cancel();
-                    PararSimulacao();
-                    _aquecimentoAtual = null;
-                    _ultimoTempoDigitado = null;
-                    _ultimaPotenciaDigitada = null;
-
-                    lock (_consoleLock)
-                    {
-                        Console.Clear();
-                        Console.WriteLine("\n❌ Aquecimento cancelado e estado limpo!");
-                    }
-
-                    _suspendStatusDisplay = false;
-                    break;
-                }
             }
 
             Thread.Sleep(100);
@@ -369,6 +416,7 @@ public class MicroondasUI
                 _ultimaPotenciaDigitada = null;
                 Console.WriteLine("\n✅ Campos de tempo e potência limpos.");
                 PauseComEspera();
+                Console.Clear();
                 return true;
             }
 
@@ -402,6 +450,7 @@ public class MicroondasUI
                 _aquecimentoAtual = null;
                 _ultimoTempoDigitado = null;
                 _ultimaPotenciaDigitada = null;
+                _aquecimentoPredefinido = false;
 
                 Console.WriteLine("\n❌ Aquecimento cancelado e estado limpo!");
                 PauseComEspera();
@@ -463,6 +512,7 @@ public class MicroondasUI
         {
             lock (_consoleLock) Console.WriteLine("\n❌ Nenhum aquecimento pausado!");
             PauseComEspera();
+            Console.Clear();
             return true;
         }
 
@@ -534,6 +584,7 @@ public class MicroondasUI
             _cts?.Cancel();
             PararSimulacao();
             _aquecimentoAtual = _aquecimentoService.ObterAquecimento(_aquecimentoAtual.Id);
+            _aquecimentoPredefinido = false;
 
             lock (_consoleLock)
             {
@@ -585,6 +636,13 @@ public class MicroondasUI
             return true;
         }
 
+        if (_aquecimentoPredefinido)
+        {
+            lock (_consoleLock) Console.WriteLine("\n❌ Não é permitido adicionar tempo a aquecimentos iniciados por programa pré-definido.");
+            PauseComEspera();
+            return true;
+        }
+
         try
         {
             _aquecimentoService.AdicionarTempo(_aquecimentoAtual.Id);
@@ -625,5 +683,65 @@ public class MicroondasUI
             Console.WriteLine("\nPressione qualquer tecla para Retornar/Continuar...");
         }
         Console.ReadKey(true);
+    }
+
+    private bool SelecionarProgramaPredefinido()
+    {
+        var programas = _programaService.ListarProgramasPreDefinidos().ToList();
+        if (!programas.Any())
+        {
+            lock (_consoleLock) Console.WriteLine("\nNenhum programa pré-definido disponível.");
+            PauseComEspera();
+            return true;
+        }
+
+        lock (_consoleLock)
+        {
+            Console.WriteLine("\n--- PROGRAMAS PRÉ-DEFINIDOS ---");
+            foreach (var p in programas)
+            {
+                Console.WriteLine($"[{p.Identificador}] {p.Nome} - {p.Tempo} @ Potência {p.Potencia} | Instruções: {p.Instrucoes}");
+            }
+            Console.Write("\nDigite o identificador do programa para selecionar (ex: X): ");
+        }
+
+        var escolha = (Console.ReadLine() ?? "").Trim().ToUpper();
+        if (string.IsNullOrEmpty(escolha))
+        {
+            return true;
+        }
+
+        var programaDto = _programaService.ObterPrograma(escolha);
+        if (programaDto == null)
+        {
+            lock (_consoleLock) Console.WriteLine("\nPrograma não encontrado.");
+            PauseComEspera();
+            return true;
+        }
+
+        // auto-preenche e bloqueia — criar aquecimento usando o caractere do programa e permitindo tempo >120s
+        try
+        {
+            var dto = new CriarAquecimentoDTO(programaDto.TempoSegundos, programaDto.Potencia);
+            var aqu = _aquecimentoService.CriarAquecimentoComCaractere(dto, programaDto.CaractereProgresso[0]);
+            _aquecimentoAtual = _aquecimentoService.ObterAquecimento(aqu.Id);
+            _aquecimentoPredefinido = true;
+
+            lock (_consoleLock)
+            {
+                Console.WriteLine($"\n✅ Programa '{programaDto.Nome}' selecionado. Tempo e potência preenchidos e bloqueados.");
+                Console.WriteLine(_aquecimentoAtual?.StringInformativa);
+            }
+
+            // Inicia automaticamente.
+            IniciarAquecimento();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            lock (_consoleLock) Console.WriteLine($"\nErro ao iniciar programa: {ex.Message}");
+            PauseComEspera();
+            return true;
+        }
     }
 }

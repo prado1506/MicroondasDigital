@@ -7,11 +7,12 @@ public class Tempo
 
     public TimeSpan Valor { get; }
 
-    public Tempo(TimeSpan valor)
+    // Adicionado parâmetro opcional 'ignorarLimites' para permitir tempos maiores em programas pré-definidos
+    public Tempo(TimeSpan valor, bool ignorarLimites = false)
     {
         var segundos = (int)valor.TotalSeconds;
 
-        if (segundos < MinSegundos || segundos > MaxSegundos)
+        if (!ignorarLimites && (segundos < MinSegundos || segundos > MaxSegundos))
             throw new ArgumentException(
                 $"Tempo deve estar entre {MinSegundos}s e {MaxSegundos}s.",
                 nameof(valor));

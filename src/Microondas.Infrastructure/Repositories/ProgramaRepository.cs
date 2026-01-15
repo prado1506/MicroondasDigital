@@ -53,6 +53,9 @@ public class ProgramaRepository : IProgramaRepository
         if (existente == null)
             throw new InvalidOperationException($"Programa '{programa.Identificador}' não encontrado");
 
+        if (!existente.EhCustomizado)
+            throw new InvalidOperationException("Programas pré-definidos não podem ser atualizados");
+
         var indice = _programas.IndexOf(existente);
         _programas[indice] = programa;
     }
@@ -61,7 +64,12 @@ public class ProgramaRepository : IProgramaRepository
     {
         var programa = ObterPorIdentificador(identificador);
         if (programa != null)
+        {
+            if (!programa.EhCustomizado)
+                throw new InvalidOperationException("Programas pré-definidos não podem ser removidos");
+
             _programas.Remove(programa);
+        }
     }
 
     public bool Existe(string identificador)
@@ -77,50 +85,55 @@ public class ProgramaRepository : IProgramaRepository
 
     private void InitializarProgramasPadroes()
     {
-        // Limpar apenas programas customizados
+        // Remover apenas customizados (se houver)
         var customizados = _programas.Where(p => p.EhCustomizado).ToList();
         foreach (var prog in customizados)
             _programas.Remove(prog);
 
         // Programas Pré-definidos (Nível 2)
         _programas.Add(new Programa(
-            "P", "Pipoca",
-            TimeSpan.FromSeconds(180), // 3 minutos
-            new Potencia(8),
-            "Pipoca de micro-ondas. Não remova durante o aquecimento.",
-            false
+            "X", "Pipoca",
+            TimeSpan.FromMinutes(3), // 3 min
+            new Potencia(7),
+            "Pipoca: pare quando o estouro diminuir.",
+            false,
+            '*' // caractere de aquecimento
         ));
 
         _programas.Add(new Programa(
-            "L", "Leite",
-            TimeSpan.FromSeconds(300), // 5 minutos
-            new Potencia(3),
-            "Leite para bebê. Aquecimento suave e seguro.",
-            false
+            "M", "Leite",
+            TimeSpan.FromMinutes(5), // 5 min
+            new Potencia(5),
+            "Leite: cuidado com líquidos quentes. Não superaquecer.",
+            false,
+            '~'
         ));
 
         _programas.Add(new Programa(
-            "C", "Carne",
-            TimeSpan.FromSeconds(420), // 7 minutos
-            new Potencia(9),
-            "Descongelamento de carne. Vire na metade do tempo.",
-            false
+            "B", "Carne",
+            TimeSpan.FromMinutes(14), // 14 min
+            new Potencia(4),
+            "Carne: vire na metade do tempo.",
+            false,
+            '#'
         ));
 
         _programas.Add(new Programa(
-            "F", "Frango",
-            TimeSpan.FromSeconds(360), // 6 minutos
-            new Potencia(8),
-            "Descongelamento de frango. Monitore durante o processo.",
-            false
+            "C", "Frango",
+            TimeSpan.FromMinutes(8), // 8 min
+            new Potencia(7),
+            "Frango: vire na metade do tempo.",
+            false,
+            '+'
         ));
 
         _programas.Add(new Programa(
             "J", "Feijão",
-            TimeSpan.FromSeconds(480), // 8 minutos
-            new Potencia(7),
-            "Aquecimento de feijão. Aqueça gradualmente para evitar respingos.",
-            false
+            TimeSpan.FromMinutes(8), // 8 min
+            new Potencia(9),
+            "Feijão: aqueça descoberto. Cuidado com recipientes plásticos.",
+            false,
+            '!' 
         ));
     }
 }

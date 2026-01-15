@@ -14,7 +14,23 @@ public class AquecimentoService
         var tempo = new Tempo(TimeSpan.FromSeconds(dto.TempoSegundos));
         var potencia = new Potencia(dto.Potencia);
 
-        var aquecimento = new Aquecimento(tempo, potencia);
+        // cria aquecimento manual com caractere padrão '.'
+        var aquecimento = new Aquecimento(tempo, potencia, '.');
+        _aquecimentos.Add(aquecimento);
+        return MapearParaDTO(aquecimento);
+    }
+
+    // Novo: criar aquecimento usando caractere de progresso (para programas pré-definidos).
+    // Usa 'ignorarLimites' ao criar Tempo para permitir durações > 120s quando necessário.
+    public AquecimentoDTO CriarAquecimentoComCaractere(CriarAquecimentoDTO dto, char caractere)
+    {
+        if (dto == null) throw new ArgumentNullException(nameof(dto));
+
+        // permite tempos além do VO Tempo padrão — programas pré-definidos podem ter >120s
+        var tempo = new Tempo(TimeSpan.FromSeconds(dto.TempoSegundos), ignorarLimites: true);
+        var potencia = new Potencia(dto.Potencia);
+
+        var aquecimento = new Aquecimento(tempo, potencia, caractere);
         _aquecimentos.Add(aquecimento);
         return MapearParaDTO(aquecimento);
     }

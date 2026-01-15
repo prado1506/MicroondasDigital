@@ -2,7 +2,7 @@
 
 public class Programa
 {
-    public string Identificador { get; private set; } // Caractere único: "P", "L", "C", "F", "J" ou customizado
+    public string Identificador { get; private set; } // Caractere único: "X", "M", "B", "C", "J" ou customizado
     public string Nome { get; private set; }
     public TimeSpan Tempo { get; private set; }
     public Potencia Potencia { get; private set; }
@@ -10,10 +10,13 @@ public class Programa
     public bool EhCustomizado { get; private set; }
     public DateTime DataCriacao { get; private set; }
 
+    // Caractere usado para exibir progresso quando aquecimento for criado a partir deste programa
+    public char CaractereProgresso { get; private set; }
+
     private Programa() { }
 
     public Programa(string identificador, string nome, TimeSpan tempo, Potencia potencia,
-                   string instrucoes, bool ehCustomizado = false)
+                   string instrucoes, bool ehCustomizado = false, char caractereProgresso = '.')
     {
         ValidarIdentificador(identificador);
 
@@ -24,12 +27,14 @@ public class Programa
         Instrucoes = instrucoes ?? string.Empty;
         EhCustomizado = ehCustomizado;
         DataCriacao = DateTime.UtcNow;
+        CaractereProgresso = caractereProgresso;
     }
 
     public Aquecimento CriarAquecimento()
     {
-        var tempoVo = new Tempo(Tempo);
-        return new Aquecimento(tempoVo, Potencia);
+        // Para programas pré-definidos, permitir ignorar limites do VO Tempo
+        var tempoVo = new Tempo(Tempo, ignorarLimites: !EhCustomizado);
+        return new Aquecimento(tempoVo, Potencia, CaractereProgresso);
     }
 
     private void ValidarIdentificador(string identificador)

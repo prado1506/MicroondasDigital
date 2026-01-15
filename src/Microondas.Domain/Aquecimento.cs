@@ -18,7 +18,12 @@ public class Aquecimento
     public Potencia Potencia { get; private set; }
     public EstadoAquecimento Estado { get; private set; }
     public string StringInformativa { get; private set; }
-    public Aquecimento(Tempo tempo, Potencia potencia)
+
+    // Caractere usado para desenhar o progresso do aquecimento (ex.: '*', '#', '+', etc.)
+    public char CaractereProgresso { get; private set; }
+
+    // Construtor agora aceita caractere de progresso (padrão '.')
+    public Aquecimento(Tempo tempo, Potencia potencia, char caractereProgresso = '.')
     {
         if (tempo is null) throw new ArgumentNullException(nameof(tempo));
         if (potencia is null) throw new ArgumentNullException(nameof(potencia));
@@ -28,6 +33,7 @@ public class Aquecimento
         TempoRestante = tempo.Valor;
         Potencia = potencia;
         Estado = EstadoAquecimento.Parado;
+        CaractereProgresso = caractereProgresso;
         StringInformativa = GerarStringInformativa()!;
     }
 
@@ -46,10 +52,10 @@ public class Aquecimento
     private string GerarPontosProgresso()
     {
         // Para cada segundo restante exibe um "grupo" de pontos do tamanho da potência.
-        // Ex.: 10s potência 1 -> ". . . . . . . . . ."
-        //      5s potência 3  -> "... ... ... ... ..."
+        // Usa CaractereProgresso em vez de '.'.
         int segundos = Math.Max(0, (int)Math.Ceiling(TempoRestante.TotalSeconds));
         int grupo = Potencia.Valor;
+        char c = CaractereProgresso;
 
         if (segundos == 0)
             return string.Empty;
@@ -57,7 +63,7 @@ public class Aquecimento
         var sb = new System.Text.StringBuilder();
         for (int i = 0; i < segundos; i++)
         {
-            sb.Append(new string('.', grupo));
+            sb.Append(new string(c, grupo));
             if (i < segundos - 1)
                 sb.Append(' ');
         }

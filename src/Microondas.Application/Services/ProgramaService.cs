@@ -28,7 +28,8 @@ public class ProgramaService
                 tempo,
                 potencia,
                 dto.Instrucoes,
-                ehCustomizado: true
+                ehCustomizado: true,
+                caractereProgresso: '.' // customizados usam . por padrão
             );
 
             _repository.Adicionar(programa);
@@ -90,9 +91,11 @@ public class ProgramaService
             programa.Identificador,
             programa.Nome,
             FormatarTempo(programa.Tempo),
+            (int)programa.Tempo.TotalSeconds,
             int.Parse(programa.Potencia.ToString()),
             programa.Instrucoes,
-            programa.EhCustomizado
+            programa.EhCustomizado,
+            programa.CaractereProgresso.ToString()
         );
     }
 

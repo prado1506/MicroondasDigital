@@ -1,5 +1,6 @@
 ﻿using Microondas.Domain;
 using System.Xml.Linq;
+using System.Threading.Tasks;
 
 namespace Microondas.Infrastructure.Repositories;
 
@@ -15,9 +16,26 @@ public class AquecimentoRepository : IAquecimentoRepository
         _aquecimentos.Add(aquecimento);
     }
 
+    // Implementação assíncrona exigida pela interface IAquecimentoRepository
+    public Task AdicionarAsync(Aquecimento aquecimento)
+    {
+        if (aquecimento == null)
+            throw new ArgumentNullException(nameof(aquecimento));
+
+        _aquecimentos.Add(aquecimento);
+        return Task.CompletedTask;
+    }
+
     public Aquecimento? ObterPorId(int id)
     {
         return _aquecimentos.FirstOrDefault(a => a.Id == id);
+    }
+
+    // Implementação assíncrona exigida pela interface IAquecimentoRepository
+    public Task<Aquecimento?> ObterAtualAsync()
+    {
+        var atual = _aquecimentos.LastOrDefault();
+        return Task.FromResult(atual);
     }
 
     public IEnumerable<Aquecimento> ObterTodos()

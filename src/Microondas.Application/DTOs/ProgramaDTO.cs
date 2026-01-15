@@ -4,9 +4,11 @@ public record ProgramaDTO(
     string Identificador,
     string Nome,
     string Tempo,
+    int TempoSegundos,
     int Potencia,
     string Instrucoes,
-    bool EhCustomizado
+    bool EhCustomizado,
+    string CaractereProgresso
 );
 
 public record CriarProgramaDTO(
