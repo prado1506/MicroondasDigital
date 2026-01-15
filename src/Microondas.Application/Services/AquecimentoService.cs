@@ -5,7 +5,12 @@ namespace Microondas.Application.Services;
 
 public class AquecimentoService
 {
-    private readonly List<Aquecimento> _aquecimentos = new();
+    private readonly Microondas.Infrastructure.Repositories.IAquecimentoRepository _repo;
+
+    public AquecimentoService(Microondas.Infrastructure.Repositories.IAquecimentoRepository repo)
+    {
+        _repo = repo ?? throw new ArgumentNullException(nameof(repo));
+    }
 
     public AquecimentoDTO CriarAquecimento(CriarAquecimentoDTO dto)
     {
@@ -14,85 +19,86 @@ public class AquecimentoService
         var tempo = new Tempo(TimeSpan.FromSeconds(dto.TempoSegundos));
         var potencia = new Potencia(dto.Potencia);
 
-        // cria aquecimento manual com caractere padrão '.'
         var aquecimento = new Aquecimento(tempo, potencia, '.');
-        _aquecimentos.Add(aquecimento);
+        _repo.Adicionar(aquecimento);
         return MapearParaDTO(aquecimento);
     }
 
-    // Novo: criar aquecimento usando caractere de progresso (para programas pré-definidos).
-    // Usa 'ignorarLimites' ao criar Tempo para permitir durações > 120s quando necessário.
     public AquecimentoDTO CriarAquecimentoComCaractere(CriarAquecimentoDTO dto, char caractere)
     {
         if (dto == null) throw new ArgumentNullException(nameof(dto));
 
-        // permite tempos além do VO Tempo padrão — programas pré-definidos podem ter >120s
         var tempo = new Tempo(TimeSpan.FromSeconds(dto.TempoSegundos), ignorarLimites: true);
         var potencia = new Potencia(dto.Potencia);
 
         var aquecimento = new Aquecimento(tempo, potencia, caractere);
-        _aquecimentos.Add(aquecimento);
+        _repo.Adicionar(aquecimento);
         return MapearParaDTO(aquecimento);
     }
 
     public AquecimentoDTO? ObterAquecimento(int id)
     {
-        var a = _aquecimentos.FirstOrDefault(x => x.Id == id);
+        var a = _repo.ObterPorId(id);
         return a != null ? MapearParaDTO(a) : null;
     }
 
     public AquecimentoDTO? SimularPassagemTempo(int id)
     {
-        var a = _aquecimentos.FirstOrDefault(x => x.Id == id);
+        var a = _repo.ObterPorId(id);
         if (a == null) return null;
 
         a.DecrementarTempo();
+        _repo.Atualizar(a);
         return MapearParaDTO(a);
     }
 
-    // Agora AdicionarTempo sempre adiciona 30 segundos — regra do projeto
     public AquecimentoDTO? AdicionarTempo(int id)
     {
-        var a = _aquecimentos.FirstOrDefault(x => x.Id == id);
+        var a = _repo.ObterPorId(id);
         if (a == null) throw new InvalidOperationException($"Aquecimento {id} não encontrado");
 
-        a.AdicionarTempo(TimeSpan.FromSeconds(30)); // adiciona 30s fixos
+        a.AdicionarTempo(TimeSpan.FromSeconds(30));
+        _repo.Atualizar(a);
         return MapearParaDTO(a);
     }
 
     public AquecimentoDTO? IniciarAquecimento(int id)
     {
-        var a = _aquecimentos.FirstOrDefault(x => x.Id == id);
+        var a = _repo.ObterPorId(id);
         if (a == null) throw new InvalidOperationException($"Aquecimento {id} não encontrado");
 
         a.Iniciar();
+        _repo.Atualizar(a);
         return MapearParaDTO(a);
-    }
+    }       
 
     public AquecimentoDTO? PausarAquecimento(int id)
     {
-        var a = _aquecimentos.FirstOrDefault(x => x.Id == id);
+        var a = _repo.ObterPorId(id);
         if (a == null) throw new InvalidOperationException($"Aquecimento {id} não encontrado");
 
         a.Pausar();
+        _repo.Atualizar(a);
         return MapearParaDTO(a);
     }
 
     public AquecimentoDTO? RetomarAquecimento(int id)
     {
-        var a = _aquecimentos.FirstOrDefault(x => x.Id == id);
+        var a = _repo.ObterPorId(id);
         if (a == null) throw new InvalidOperationException($"Aquecimento {id} não encontrado");
 
         a.Retomar();
+        _repo.Atualizar(a);
         return MapearParaDTO(a);
     }
 
     public AquecimentoDTO? CancelarAquecimento(int id)
     {
-        var a = _aquecimentos.FirstOrDefault(x => x.Id == id);
+        var a = _repo.ObterPorId(id);
         if (a == null) throw new InvalidOperationException($"Aquecimento {id} não encontrado");
 
         a.Cancelar();
+        _repo.Atualizar(a);
         return MapearParaDTO(a);
     }
 

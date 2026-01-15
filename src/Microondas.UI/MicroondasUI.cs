@@ -37,24 +37,31 @@ public class MicroondasUI
 
     public MicroondasUI()
     {
-        // URLs tentadas: primeiro a variável de ambiente (se existir) ou o HTTPS padrão, depois fallback HTTP
+        // URLs: preferida (env ou padrão HTTPS) e fallbacks conhecidos (HTTP)
         var apiUrlEnv = Environment.GetEnvironmentVariable("MICROONDAS_API_URL");
         var preferredUrl = apiUrlEnv ?? "https://localhost:7198/";
-        var fallbackUrl = "http://localhost:5123/";
+        var fallbackUrls = new[] { "http://localhost:5123/", "https://localhost:7198/" };
+
         var allowInsecure = Environment.GetEnvironmentVariable("MICROONDAS_ALLOW_INSECURE") == "1";
 
         HttpClient? chosen = null;
+
+        // Build candidates: preferred primeiro, depois fallbacks sem duplicatas
         var candidates = new List<string> { preferredUrl };
-        if (string.IsNullOrWhiteSpace(apiUrlEnv))
-            candidates.Add(fallbackUrl);
+        foreach (var f in fallbackUrls)
+        {
+            if (!candidates.Contains(f, StringComparer.OrdinalIgnoreCase))
+                candidates.Add(f);
+        }
 
         foreach (var url in candidates)
         {
             HttpClientHandler? handler = null;
-            HttpClient client = null!;
+            HttpClient? client = null;
 
             try
             {
+                // Cria HttpClient (aceita certs self-signed apenas se permitido)
                 if (allowInsecure && url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
                 {
                     handler = new HttpClientHandler
@@ -68,38 +75,43 @@ public class MicroondasUI
                     client = new HttpClient() { BaseAddress = new Uri(url), Timeout = TimeSpan.FromSeconds(2) };
                 }
 
-                // Chamada curta para verificar se a API responde. Usamos um endpoint existente (api/programa).
+                Console.WriteLine($"[DEBUG] Tentando conectar em {url} ...");
                 var resp = client.GetAsync("api/programa").GetAwaiter().GetResult();
 
-                // Aceita sucesso ou respostas válidas (mesmo 401/403) como indicação de que o servidor está lá.
+                // Considera válido: sucesso ou resposta de autenticação/autorização (servidor está presente)
                 if (resp.IsSuccessStatusCode ||
                     resp.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
                     resp.StatusCode == System.Net.HttpStatusCode.Forbidden ||
                     resp.StatusCode == System.Net.HttpStatusCode.NotFound)
                 {
                     chosen = client;
+                    Console.WriteLine($"[DEBUG] Conectou: {url} (status {resp.StatusCode})");
                     break;
                 }
 
                 client.Dispose();
                 handler?.Dispose();
             }
-            catch
+            catch (Exception ex)
             {
+                // log curto para depuração e tenta próximo candidate
+                Console.WriteLine($"[DEBUG] Falha ao conectar em {url}: {ex.Message}");
                 try { client?.Dispose(); } catch { }
                 try { handler?.Dispose(); } catch { }
-                // tenta próximo candidate
             }
         }
 
-        // Se não achou nenhum, cria cliente com a preferredUrl e timeout maior (as mensagens de erro tratarão a falha)
+        // Se não encontrou nenhum, usa a preferredUrl e deixará erros serem tratados nas chamadas
         _http = chosen ?? new HttpClient { BaseAddress = new Uri(preferredUrl), Timeout = TimeSpan.FromSeconds(10) };
 
         Console.WriteLine($"[DEBUG] MICROONDAS_API_URL = {_http.BaseAddress}");
 
         var programaRepository = new ProgramaRepository();
         _programaService = new ProgramaService(programaRepository);
-        _aquecimentoService = new AquecimentoService();
+
+        // Corrigido: cria e injeta o repositório no serviço de aquecimento
+        var aquecimentoRepository = new AquecimentoRepository();
+        _aquecimentoService = new AquecimentoService(aquecimentoRepository);
     }
 
     public void Executar()
@@ -326,7 +338,23 @@ public class MicroondasUI
             var resp = await _http.PostAsync("api/auth/configurar", content);
             if (!resp.IsSuccessStatusCode)
             {
-                lock (_consoleLock) Console.WriteLine($"\n❌ Falha ao configurar: {resp.StatusCode}");
+                // Situação comum: já existe configuração e a API exige autenticação para alterar
+                if (resp.StatusCode == HttpStatusCode.Forbidden)
+                {
+                    var detalhe = await resp.Content.ReadAsStringAsync();
+                    lock (_consoleLock)
+                    {
+                        Console.WriteLine("\n❌ Falha ao configurar: acesso negado (já existe configuração).");
+                        Console.WriteLine("→ Faça login com o usuário atual para alterar as credenciais, ou remova o arquivo 'auth_config.json' no diretório de execução da API para recriar credenciais.");
+                        if (!string.IsNullOrWhiteSpace(detalhe))
+                            Console.WriteLine($"→ Detalhe do servidor: {detalhe}");
+                    }
+                    PauseComEspera();
+                    return false;
+                }
+
+                var body = await resp.Content.ReadAsStringAsync();
+                lock (_consoleLock) Console.WriteLine($"\n❌ Falha ao configurar: {resp.StatusCode}. {body}");
                 PauseComEspera();
                 return false;
             }
@@ -342,7 +370,7 @@ public class MicroondasUI
                 Console.WriteLine($"\n❌ Erro de conexão ao configurar credenciais: {ex.Message}");
                 Console.WriteLine("→ Verifique se a API está rodando e se a URL está correta.");
                 Console.WriteLine("→ Para executar a API localmente: `dotnet run --project src/Microondas.API/Microondas.API.csproj`");
-                Console.WriteLine("→ Se a API usa HTTP em vez de HTTPS, defina MICROONDAS_API_URL (ex: http://localhost:5000/).");
+                Console.WriteLine("→ Se a API usa HTTP em vez de HTTPS, defina MICROONDAS_API_URL (ex: http://localhost:5123/).");
             }
             PauseComEspera();
             return false;
@@ -1091,7 +1119,20 @@ public class MicroondasUI
         try
         {
             var criarDto = new CriarAquecimentoDTO(programaDto.TempoSegundos, programaDto.Potencia);
-            var aqu = CriarAquecimentoComCaractereViaApi(criarDto, programaDto.CaractereProgresso[0]);
+
+            // valida CaractereProgresso antes de indexar
+            var caractereProgresso = programaDto.CaractereProgresso;
+            if (string.IsNullOrEmpty(caractereProgresso))
+            {
+                lock (_consoleLock)
+                {
+                    Console.WriteLine("\n❌ Programa selecionado não possui caractere de progresso definido.");
+                }
+                PauseComEspera();
+                return true;
+            }
+
+            var aqu = CriarAquecimentoComCaractereViaApi(criarDto, caractereProgresso[0]);
             _aquecimentoAtual = aqu;
             _aquecimentoPredefinido = true;
 

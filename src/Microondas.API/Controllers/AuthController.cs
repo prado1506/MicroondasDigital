@@ -57,7 +57,13 @@ public class AuthController : ControllerBase
         if (System.IO.File.Exists(_filePath))
         {
             if (!(HttpContext.User.Identity?.IsAuthenticated ?? false))
-                return Forbid();
+            {
+                return StatusCode(403, new StandardError(
+                    "config_exists",
+                    "Já existe configuração no servidor. É necessário autenticar-se para alterar as credenciais. " +
+                    "Para criar credenciais iniciais, remova o arquivo 'auth_config.json' no diretório da API ou faça login com as credenciais existentes."
+                ));
+            }
         }
 
         var hash = HashHelper.Sha256Hex(req.Password);
