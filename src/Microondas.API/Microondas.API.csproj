@@ -7,14 +7,21 @@
   </PropertyGroup>
 
   <ItemGroup>
-	<PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.0" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.0" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.15.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Controllers\" />
+    <ProjectReference Include="..\Microondas.Application\Microondas.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Folder Include="Middleware\" />
     <Folder Include="Exceptions\" />
     <Folder Include="Security\" />
+    <Folder Include="Controllers\" />
   </ItemGroup>
 
 </Project>

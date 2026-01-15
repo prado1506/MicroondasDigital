@@ -1,130 +1,250 @@
-﻿namespace Microondas.Domain;
+﻿using Microondas.Domain;
+using System.Text.Json;
 
-public class Potencia
+namespace Microondas.Infrastructure.Repositories;
+
+public class ProgramaRepository : IProgramaRepository
 {
-    public int Valor { get; set; }
+    private readonly List<Programa> _programas = new();
+    private readonly string _filePathCustom;
 
-    public Potencia(int valor)
+    public ProgramaRepository()
     {
-        if (valor < 1 || valor > 10)
-            throw new ArgumentOutOfRangeException(nameof(valor), "Potência deve estar entre 1 e 10");
-        Valor = valor;
+        _filePathCustom = Path.Combine(AppContext.BaseDirectory, "programas_customizados.json");
+        // Inicializar com programas pré-definidos + carregar customizados do disco
+        InicializarProgramasPadroes();
+        CarregarProgramasCustomizados();
     }
 
-    public override string ToString() => Valor.ToString();
-}
-
-public class Programa
-{
-    public string Identificador { get; set; } = string.Empty;
-    public string Nome { get; set; } = string.Empty;
-    public string Alimento { get; set; } = string.Empty;
-    public TimeSpan Tempo { get; set; }
-    public Potencia Potencia { get; set; } = new Potencia(10);
-    public string? Instrucoes { get; set; }
-    public bool EhCustomizado { get; set; }
-    public char CaractereProgresso { get; set; } = '*';
-    
-    // Propriedades herdadas para compatibilidade
-    public int Id => int.TryParse(Identificador, out var id) ? id : 0;
-    public string CaracterAquecimento => CaractereProgresso.ToString();
-    public TimeSpan TempoPadrao => Tempo;
-    public bool Pausado { get; set; } = false;
-    public bool Finalizado { get; set; } = false;
-    public bool EmUso { get; set; } = false;
-    public DateTime InicioAquecimento { get; set; } = DateTime.MinValue;
-    
-    public TimeSpan TempoRestante
+    public void Adicionar(Programa programa)
     {
-        get
-        {
-            if (!EmUso || InicioAquecimento == DateTime.MinValue)
-                return TimeSpan.Zero;
+        if (programa == null)
+            throw new ArgumentNullException(nameof(programa));
 
-            var elapsed = DateTime.Now - InicioAquecimento;
-            var remaining = Tempo - elapsed;
-            return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+        if (Existe(programa.Identificador))
+            throw new InvalidOperationException($"Programa '{programa.Identificador}' já existe");
+
+        // valida unicidade do caractere de progresso e proíbe '.'
+        if (programa.CaractereProgresso == '.')
+            throw new InvalidOperationException("Caractere de aquecimento '.' é reservado e não pode ser usado.");
+
+        if (_programas.Any(p => p.CaractereProgresso == programa.CaractereProgresso))
+            throw new InvalidOperationException($"Caractere de aquecimento '{programa.CaractereProgresso}' já está em uso por outro programa.");
+
+        _programas.Add(programa);
+
+        if (programa.EhCustomizado)
+            SalvarProgramasCustomizados();
+    }
+
+    public Programa? ObterPorIdentificador(string identificador)
+    {
+        if (string.IsNullOrWhiteSpace(identificador))
+            return null;
+
+        return _programas.FirstOrDefault(p =>
+            p.Identificador.Equals(identificador, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public IEnumerable<Programa> ObterTodos()
+    {
+        // exposição como IEnumerable já impede alteração da lista por fora
+        return _programas;
+    }
+
+    public IEnumerable<Programa> ObterCustomizados()
+    {
+        return _programas.Where(p => p.EhCustomizado);
+    }
+
+    public void Atualizar(Programa programa)
+    {
+        if (programa == null)
+            throw new ArgumentNullException(nameof(programa));
+
+        var existente = ObterPorIdentificador(programa.Identificador);
+        if (existente == null)
+            throw new InvalidOperationException($"Programa '{programa.Identificador}' não encontrado");
+
+        if (!existente.EhCustomizado)
+            throw new InvalidOperationException("Programas pré-definidos não podem ser atualizados");
+
+        // valida unicidade caractere (exceto contra si mesmo)
+        if (programa.CaractereProgresso == '.')
+            throw new InvalidOperationException("Caractere de aquecimento '.' é reservado e não pode ser usado.");
+        if (_programas.Any(p => p.Identificador != existente.Identificador && p.CaractereProgresso == programa.CaractereProgresso))
+            throw new InvalidOperationException($"Caractere de aquecimento '{programa.CaractereProgresso}' já está em uso por outro programa.");
+
+        var indice = _programas.IndexOf(existente);
+        _programas[indice] = programa;
+        SalvarProgramasCustomizados();
+    }
+
+    public void Remover(string identificador)
+    {
+        var programa = ObterPorIdentificador(identificador);
+        if (programa != null)
+        {
+            if (!programa.EhCustomizado)
+                throw new InvalidOperationException("Programas pré-definidos não podem ser removidos");
+
+            _programas.Remove(programa);
+            SalvarProgramasCustomizados();
         }
     }
 
-    // Construtor para compatibilidade com repositório
-    public Programa(
-        string identificador, 
-        string nome, 
-        string alimento,
-        TimeSpan tempo,
-        Potencia potencia,
-        string instrucoes,
-        bool ehCustomizado,
-        char caractereProgresso)
+    public bool Existe(string identificador)
     {
-        Identificador = identificador ?? throw new ArgumentNullException(nameof(identificador));
-        Nome = nome ?? throw new ArgumentNullException(nameof(nome));
-        Alimento = alimento ?? throw new ArgumentNullException(nameof(alimento));
-        Tempo = tempo;
-        Potencia = potencia ?? throw new ArgumentNullException(nameof(potencia));
-        Instrucoes = instrucoes;
-        EhCustomizado = ehCustomizado;
-        CaractereProgresso = caractereProgresso;
+        return ObterPorIdentificador(identificador) != null;
     }
 
-    // Construtor alternativo
-    public Programa(string nome, int tempoSegundos, string caracterAquecimento = "*")
+    public void Limpar()
     {
-        Nome = nome ?? throw new ArgumentNullException(nameof(nome));
-        Tempo = TimeSpan.FromSeconds(tempoSegundos);
-        CaractereProgresso = caracterAquecimento?.Length > 0 ? caracterAquecimento[0] : '*';
+        _programas.Clear();
+        InicializarProgramasPadroes();
+        // mantém o arquivo de customizados como está — re-carregar a seguir
+        CarregarProgramasCustomizados();
     }
 
-    public void IniciarAquecimento()
+    private void InicializarProgramasPadroes()
     {
-        if (Finalizado)
+        // Remover apenas customizados (se houver)
+        var customizados = _programas.Where(p => p.EhCustomizado).ToList();
+        foreach (var prog in customizados)
+            _programas.Remove(prog);
+
+        // Programas Pré-definidos (exemplos)
+        _programas.Add(new Programa(
+            "X", "Pipoca", "Pipoca",
+            TimeSpan.FromMinutes(3), // 3 min
+            new Potencia(7),
+            "Pipoca: pare quando o estouro diminuir.",
+            false,
+            '*' // caractere de aquecimento
+        ));
+
+        _programas.Add(new Programa(
+            "M", "Leite", "Leite",
+            TimeSpan.FromMinutes(5), // 5 min
+            new Potencia(5),
+            "Leite: cuidado com líquidos quentes. Não superaquecer.",
+            false,
+            '~'
+        ));
+
+        _programas.Add(new Programa(
+            "B", "Carne", "Carne",
+            TimeSpan.FromMinutes(14), // 14 min
+            new Potencia(4),
+            "Carne: vire na metade do tempo.",
+            false,
+            '#'
+        ));
+
+        _programas.Add(new Programa(
+            "C", "Frango", "Frango",
+            TimeSpan.FromMinutes(8), // 8 min
+            new Potencia(7),
+            "Frango: vire na metade do tempo.",
+            false,
+            '+'
+        ));
+
+        _programas.Add(new Programa(
+            "J", "Feijão", "Feijão",
+            TimeSpan.FromMinutes(8), // 8 min
+            new Potencia(9),
+            "Feijão: aqueça descoberto. Cuidado com recipientes plásticos.",
+            false,
+            '!'
+        ));
+    }
+
+    private void SalvarProgramasCustomizados()
+    {
+        try
         {
-            throw new InvalidOperationException("Não é possível reiniciar um programa já finalizado.");
-        }
+            var custom = _programas.Where(p => p.EhCustomizado)
+                .Select(p => new SerializablePrograma
+                {
+                    Identificador = p.Identificador,
+                    Nome = p.Nome,
+                    Alimento = p.Alimento,
+                    TempoSegundos = (int)p.Tempo.TotalSeconds,
+                    Potencia = int.Parse(p.Potencia.ToString()),
+                    Instrucoes = p.Instrucoes ?? string.Empty,
+                    CaractereProgresso = p.CaractereProgresso
+                }).ToList();
 
-        if (Pausado)
-        {
-            InicioAquecimento = DateTime.Now.Add(TempoRestante.Negate());
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            var json = JsonSerializer.Serialize(custom, options);
+            File.WriteAllText(_filePathCustom, json);
         }
-        else
+        catch
         {
-            InicioAquecimento = DateTime.Now;
+            // Não propagar exceções de I/O para não quebrar fluxo principal;
+            // log poderia ser adicionado aqui.
         }
-
-        EmUso = true;
-        Pausado = false;
     }
 
-    public void Pausar()
+    private void CarregarProgramasCustomizados()
     {
-        if (!EmUso) return;
-        
-        Pausado = true;
-        EmUso = false;
-    }
-
-    public void Parar()
-    {
-        EmUso = false;
-        Pausado = false;
-        Finalizado = true;
-    }
-
-    public bool VerificarConclusao()
-    {
-        if (!EmUso || InicioAquecimento == DateTime.MinValue) 
-            return false;
-
-        var elapsed = DateTime.Now - InicioAquecimento;
-        var isComplete = elapsed >= Tempo;
-        
-        if (isComplete)
+        try
         {
-            Finalizado = true;
-            EmUso = false;
-        }
+            if (!File.Exists(_filePathCustom))
+                return;
 
-        return isComplete;
+            var json = File.ReadAllText(_filePathCustom);
+            var list = JsonSerializer.Deserialize<List<SerializablePrograma>>(json);
+            if (list == null) return;
+
+            foreach (var s in list)
+            {
+                // valida unicidade do identificador e do caractere
+                if (string.IsNullOrWhiteSpace(s.Identificador) || s.Identificador.Length != 1)
+                    continue;
+
+                if (_programas.Any(p => p.Identificador.Equals(s.Identificador, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                if (s.CaractereProgresso == '.' || _programas.Any(p => p.CaractereProgresso == s.CaractereProgresso))
+                    continue;
+
+                try
+                {
+                    var programa = new Programa(
+                        s.Identificador,
+                        s.Nome,
+                        s.Alimento,
+                        TimeSpan.FromSeconds(s.TempoSegundos),
+                        new Potencia(s.Potencia),
+                        s.Instrucoes,
+                        true,
+                        s.CaractereProgresso
+                    );
+
+                    _programas.Add(programa);
+                }
+                catch
+                {
+                    // ignora entradas inválidas
+                }
+            }
+        }
+        catch
+        {
+            // ignora erros de I/O/parse
+        }
+    }
+
+    private class SerializablePrograma
+    {
+        public string Identificador { get; set; } = "";
+        public string Nome { get; set; } = "";
+        public string Alimento { get; set; } = "";
+        public int TempoSegundos { get; set; }
+        public int Potencia { get; set; }
+        public string Instrucoes { get; set; } = "";
+        public char CaractereProgresso { get; set; }
     }
 }

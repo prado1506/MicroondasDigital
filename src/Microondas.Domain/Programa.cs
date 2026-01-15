@@ -1,21 +1,26 @@
-﻿namespace Microondas.Domain;
+﻿using System;
+
+namespace Microondas.Domain;
 
 public class Programa
 {
-    public int Id { get; set; }
+    public string Identificador { get; set; } = string.Empty;
     public string Nome { get; set; } = string.Empty;
-    public TimeSpan TempoPadrao { get; set; }
-    public string CaracterAquecimento { get; set; } = "*";
+    public string Alimento { get; set; } = string.Empty;
+    public TimeSpan Tempo { get; set; }
+    public Potencia Potencia { get; set; } = new Potencia(Potencia.Padrao);
+    public string? Instrucoes { get; set; }
+    public bool EhCustomizado { get; set; }
+    public char CaractereProgresso { get; set; } = '*';
+    
+    // Propriedades herdadas para compatibilidade
+    public int Id => int.TryParse(Identificador, out var id) ? id : 0;
+    public string CaracterAquecimento => CaractereProgresso.ToString();
+    public TimeSpan TempoPadrao => Tempo;
     public bool Pausado { get; set; } = false;
     public bool Finalizado { get; set; } = false;
     public bool EmUso { get; set; } = false;
     public DateTime InicioAquecimento { get; set; } = DateTime.MinValue;
-    public int Potencia { get; set; } = 10;
-    
-    // Adicionando as propriedades esperadas pelo repositório
-    public int Identificador => Id;  // Mapeamento para Id
-    public string CaractereProgresso => CaracterAquecimento;  // Mapeamento para CaracterAquecimento
-    public bool EhCustomizado => Id > 5;  // Lógica provisória - ajuste conforme necessário
     
     public TimeSpan TempoRestante
     {
@@ -25,47 +30,49 @@ public class Programa
                 return TimeSpan.Zero;
 
             var elapsed = DateTime.Now - InicioAquecimento;
-            var remaining = TempoPadrao - elapsed;
+            var remaining = Tempo - elapsed;
             return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
         }
     }
 
-    // Construtor com 8 parâmetros conforme esperado pelo repositório
-    public Programa(int id, string nome, int tempoSegundos, string caractere, bool pausado, bool finalizado, bool emUso, int potencia)
+    // Construtor compatível com ProgramaService
+    public Programa(
+        string identificador, 
+        string nome, 
+        string alimento,
+        TimeSpan tempo,
+        Potencia potencia,
+        string instrucoes,
+        bool ehCustomizado,
+        char caractereProgresso)
     {
-        Id = id;
-        Nome = nome ?? string.Empty;
-        TempoPadrao = TimeSpan.FromSeconds(tempoSegundos);
-        CaracterAquecimento = caractere;
-        Pausado = pausado;
-        Finalizado = finalizado;
-        EmUso = emUso;
-        Potencia = potencia;
+        Identificador = identificador ?? throw new ArgumentNullException(nameof(identificador));
+        Nome = nome ?? throw new ArgumentNullException(nameof(nome));
+        Alimento = alimento ?? throw new ArgumentNullException(nameof(alimento));
+        Tempo = tempo;
+        Potencia = potencia ?? throw new ArgumentNullException(nameof(potencia));
+        Instrucoes = instrucoes;
+        EhCustomizado = ehCustomizado;
+        CaractereProgresso = caractereProgresso;
     }
 
-    // Mantendo o construtor original também
+    // Construtor alternativo usado em outros locais
     public Programa(string nome, int tempoSegundos, string caracterAquecimento = "*")
     {
         Nome = nome ?? throw new ArgumentNullException(nameof(nome));
-        TempoPadrao = TimeSpan.FromSeconds(tempoSegundos);
-        CaracterAquecimento = caracterAquecimento;
+        Tempo = TimeSpan.FromSeconds(tempoSegundos);
+        CaractereProgresso = caracterAquecimento?.Length > 0 ? caracterAquecimento[0] : '*';
     }
 
     public void IniciarAquecimento()
     {
         if (Finalizado)
-        {
             throw new InvalidOperationException("Não é possível reiniciar um programa já finalizado.");
-        }
 
         if (Pausado)
-        {
             InicioAquecimento = DateTime.Now.Add(TempoRestante.Negate());
-        }
         else
-        {
             InicioAquecimento = DateTime.Now;
-        }
 
         EmUso = true;
         Pausado = false;
@@ -74,7 +81,6 @@ public class Programa
     public void Pausar()
     {
         if (!EmUso) return;
-        
         Pausado = true;
         EmUso = false;
     }
@@ -92,7 +98,7 @@ public class Programa
             return false;
 
         var elapsed = DateTime.Now - InicioAquecimento;
-        var isComplete = elapsed >= TempoPadrao;
+        var isComplete = elapsed >= Tempo;
         
         if (isComplete)
         {
@@ -101,5 +107,13 @@ public class Programa
         }
 
         return isComplete;
+    }
+
+    // Método requerido pelo ProgramaService para iniciar um Aquecimento a partir do Programa
+    public Aquecimento CriarAquecimento()
+    {
+        // Usa a classe Tempo do domínio para validar limites e criar o Aquecimento
+        var tempoDominio = new Tempo(Tempo);
+        return new Aquecimento(tempoDominio, Potencia, CaractereProgresso);
     }
 }

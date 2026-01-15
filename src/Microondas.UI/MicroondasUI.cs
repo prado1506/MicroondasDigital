@@ -1,4 +1,12 @@
-﻿using Microondas.Application.DTOs;
+﻿using System;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using Microondas.Application.DTOs;
 using Microondas.Application.Services;
 using Microondas.Domain;
 using Microondas.Infrastructure.Repositories;
@@ -22,8 +30,16 @@ public class MicroondasUI
 
     private bool _aquecimentoPredefinido; // true se o aquecimento atual foi criado a partir de programa pré-definido
 
+    private readonly HttpClient _http;
+    private string? _accessToken;
+    private bool IsAuthenticated => !string.IsNullOrWhiteSpace(_accessToken);
+
     public MicroondasUI()
     {
+        // URL da API pode ser configurada por variável de ambiente MICROONDAS_API_URL
+        var apiUrl = Environment.GetEnvironmentVariable("MICROONDAS_API_URL") ?? "https://localhost:5001/";
+        _http = new HttpClient { BaseAddress = new Uri(apiUrl), Timeout = TimeSpan.FromSeconds(10) };
+
         var programaRepository = new ProgramaRepository();
         _programaService = new ProgramaService(programaRepository);
         _aquecimentoService = new AquecimentoService();
@@ -74,6 +90,19 @@ public class MicroondasUI
 
     private void ExibirMenuPrincipal()
     {
+        if (!IsAuthenticated)
+        {
+            lock (_consoleLock)
+            {
+                Console.WriteLine("\n--- AUTENTICAÇÃO NECESSÁRIA ---");
+                Console.WriteLine("L. Login");
+                Console.WriteLine("C. Configurar credenciais");
+                Console.WriteLine("0. Sair");
+                Console.Write("\nEscolha uma opção: ");
+            }
+            return;
+        }
+
         // Se há um aquecimento em andamento ou pausado, exibir um menu restrito
         var emAndamento = _aquecimentoAtual != null &&
                           (_aquecimentoAtual.Estado == EstadoAquecimento.Aquecendo.ToString()
@@ -118,6 +147,18 @@ public class MicroondasUI
         if (string.IsNullOrWhiteSpace(opcao))
             return ExibirOpcaoInvalida();
 
+        // quando não autenticado, só aceitar L, C ou 0
+        if (!IsAuthenticated)
+        {
+            return opcao.ToUpperInvariant() switch
+            {
+                "L" => LoginAsync().GetAwaiter().GetResult(),
+                "C" => ConfigureAsync().GetAwaiter().GetResult(),
+                "0" => false,
+                _ => ExibirOpcaoInvalida()
+            };
+        }
+
         var emAndamento = _aquecimentoAtual != null &&
                           (_aquecimentoAtual.Estado == EstadoAquecimento.Aquecendo.ToString()
                            || _aquecimentoAtual.Estado == EstadoAquecimento.Pausado.ToString());
@@ -153,6 +194,129 @@ public class MicroondasUI
             "p" or "P" => BotaoP(),
             _ => ExibirOpcaoInvalida()
         };
+    }
+
+    // método para login (assincrono)
+    private async Task<bool> LoginAsync()
+    {
+        lock (_consoleLock) Console.Write("Usuário: ");
+        var user = Console.ReadLine() ?? "";
+
+        lock (_consoleLock) Console.Write("Senha: ");
+        var pwd = LerSenhaMascarada();
+
+        var payload = new { Username = user, Password = pwd };
+        var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+
+        try
+        {
+            var resp = await _http.PostAsync("api/auth/login", content);
+            if (!resp.IsSuccessStatusCode)
+            {
+                lock (_consoleLock) Console.WriteLine("\n❌ Falha no login: credenciais inválidas ou erro no servidor.");
+                PauseComEspera();
+                return false;
+            }
+
+            var json = await resp.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("access_token", out var tokenEl))
+            {
+                _accessToken = tokenEl.GetString();
+                _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _accessToken);
+                lock (_consoleLock) Console.WriteLine("\n✅ Autenticação bem-sucedida.");
+                PauseComEspera();
+                return true;
+            }
+
+            lock (_consoleLock) Console.WriteLine("\n❌ Resposta inválida do servidor.");
+            PauseComEspera();
+            return false;
+        }
+        catch (HttpRequestException ex)
+        {
+            lock (_consoleLock)
+            {
+                Console.WriteLine($"\n❌ Erro de conexão ao autenticar: {ex.Message}");
+                Console.WriteLine("→ Verifique se a API está rodando e a variável de ambiente MICROONDAS_API_URL está correta.");
+                Console.WriteLine("→ Inicie a API: `dotnet run --project src/Microondas.API/Microondas.API.csproj` ou use o Visual Studio.");
+            }
+            PauseComEspera();
+            return false;
+        }
+        catch (Exception ex)
+        {
+            lock (_consoleLock) Console.WriteLine($"\n❌ Erro ao autenticar: {ex.Message}");
+            PauseComEspera();
+            return false;
+        }
+    }
+
+    // método para configurar credenciais na API (assincrono)
+    private async Task<bool> ConfigureAsync()
+    {
+        lock (_consoleLock) Console.Write("Novo usuário: ");
+        var user = Console.ReadLine() ?? "";
+
+        lock (_consoleLock) Console.Write("Nova senha: ");
+        var pwd = LerSenhaMascarada();
+
+        var payload = new { Username = user, Password = pwd };
+        var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+
+        try
+        {
+            var resp = await _http.PostAsync("api/auth/configurar", content);
+            if (!resp.IsSuccessStatusCode)
+            {
+                lock (_consoleLock) Console.WriteLine($"\n❌ Falha ao configurar: {resp.StatusCode}");
+                PauseComEspera();
+                return false;
+            }
+
+            lock (_consoleLock) Console.WriteLine("\n✅ Credenciais configuradas com sucesso.");
+            PauseComEspera();
+            return true;
+        }
+        catch (HttpRequestException ex)
+        {
+            lock (_consoleLock)
+            {
+                Console.WriteLine($"\n❌ Erro de conexão ao configurar credenciais: {ex.Message}");
+                Console.WriteLine("→ Verifique se a API está rodando e se a URL está correta.");
+                Console.WriteLine("→ Para executar a API localmente: `dotnet run --project src/Microondas.API/Microondas.API.csproj`");
+                Console.WriteLine("→ Se a API usa HTTP em vez de HTTPS, defina MICROONDAS_API_URL (ex: http://localhost:5000/).");
+            }
+            PauseComEspera();
+            return false;
+        }
+        catch (Exception ex)
+        {
+            lock (_consoleLock) Console.WriteLine($"\n❌ Erro ao configurar credenciais: {ex.Message}");
+            PauseComEspera();
+            return false;
+        }
+    }
+
+    private string LerSenhaMascarada()
+    {
+        var sb = new StringBuilder();
+        ConsoleKeyInfo key;
+        while ((key = Console.ReadKey(true)).Key != ConsoleKey.Enter)
+        {
+            if (key.Key == ConsoleKey.Backspace && sb.Length > 0)
+            {
+                sb.Length--;
+                Console.Write("\b \b");
+            }
+            else if (!char.IsControl(key.KeyChar))
+            {
+                sb.Append(key.KeyChar);
+                Console.Write('*');
+            }
+        }
+        Console.WriteLine();
+        return sb.ToString();
     }
 
     // Helper para mostrar mensagem simples dentro do fluxo do menu restrito
@@ -267,7 +431,7 @@ public class MicroondasUI
 
         try
         {
-            var dto = new Microondas.Application.DTOs.CriarAquecimentoDTO(30, 10);
+            var dto = new CriarAquecimentoDTO(30, 10);
             var aquecimentoDto = _aquecimentoService.CriarAquecimento(dto);
             _aquecimentoAtual = _aquecimentoService.ObterAquecimento(aquecimentoDto.Id);
 
@@ -635,6 +799,7 @@ public class MicroondasUI
         {
             lock (_consoleLock) Console.WriteLine("\n❌ Nenhum aquecimento para adicionar tempo!");
             PauseComEspera();
+            Console.Clear();
             return true;
         }
 
@@ -725,7 +890,7 @@ public class MicroondasUI
         // criar aquecimento com o DTO correto (tempo + potência) e usar o caractere do programa
         try
         {
-            var criarDto = new Microondas.Application.DTOs.CriarAquecimentoDTO(programaDto.TempoSegundos, programaDto.Potencia);
+            var criarDto = new CriarAquecimentoDTO(programaDto.TempoSegundos, programaDto.Potencia);
             var aqu = _aquecimentoService.CriarAquecimentoComCaractere(criarDto, programaDto.CaractereProgresso[0]);
             _aquecimentoAtual = _aquecimentoService.ObterAquecimento(aqu.Id);
             _aquecimentoPredefinido = true;
@@ -822,7 +987,7 @@ public class MicroondasUI
 
         lock (_consoleLock)
         {
-            Console.Write("Caractere de aquecimento (um caractere, diferente de '.'): ");
+            Console.Write("Caractere de aquecimento (um caractere, diferente de '.': ");
         }
         var caractInput = (Console.ReadLine() ?? "");
         if (string.IsNullOrWhiteSpace(caractInput) || caractInput.Length != 1)
@@ -874,5 +1039,14 @@ public class MicroondasUI
             PauseComEspera();
             return true;
         }
+    }
+
+    // helper para chamar antes de executar qualquer ação que exija autenticação
+    private bool GarantirAutenticacao()
+    {
+        if (IsAuthenticated) return true;
+        lock (_consoleLock) Console.WriteLine("\n🔒 Você precisa autenticar-se antes. Escolha 'L' para login.");
+        PauseComEspera();
+        return false;
     }
 }

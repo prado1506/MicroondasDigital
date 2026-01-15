@@ -1,6 +1,7 @@
 ﻿using Microondas.Application.DTOs;
 using Microondas.Domain;
 using Microondas.Infrastructure.Repositories;
+using System;
 
 namespace Microondas.Application.Services;
 
@@ -112,7 +113,7 @@ public class ProgramaService
             FormatarTempo(programa.Tempo),
             (int)programa.Tempo.TotalSeconds,
             int.Parse(programa.Potencia.ToString()),
-            programa.Instrucoes,
+            programa.Instrucoes ?? string.Empty,
             programa.EhCustomizado,
             programa.CaractereProgresso.ToString()
         );
